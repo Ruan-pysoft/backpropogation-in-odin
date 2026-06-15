@@ -44,6 +44,18 @@ foreign stb_image {
 
 	stbi_info :: proc(filename: cstring, x, y, comp: ^c.int) -> c.int ---
 	stbi_info_from_file :: proc(f: ^c.FILE, x, y, comp: ^c.int) -> c.int ---
+
+	// stb_image_write
+
+	stbi_write_png :: proc(filename: cstring, w, h, comp: c.int, data: /*const*/ rawptr, stride_in_bytes: c.int) -> c.int ---
+	stbi_write_bmp :: proc(filename: cstring, w, h, comp: c.int, data: /*const*/ rawptr, stride_in_bytes: c.int) -> c.int ---
+	stbi_write_tga :: proc(filename: cstring, w, h, comp: c.int, data: /*const*/ rawptr, stride_in_bytes: c.int) -> c.int ---
+	stbi_write_jpg :: proc(filename: cstring, w, h, comp: c.int, data: /*const*/ rawptr, stride_in_bytes: c.int, quality: c.int) -> c.int ---
+	stbi_write_hdr :: proc(filename: cstring, w, h, comp: c.int, data: /*const*/ rawptr, stride_in_bytes: c.float) -> c.int ---
+
+	stbi_flip_vertically_on_write :: proc(flag: c.bool) ---
+
+	// ...
 }
 
 Image :: struct($PixelFormat: StbiFormat) {
@@ -52,7 +64,7 @@ Image :: struct($PixelFormat: StbiFormat) {
 	raw_data: StbiImage,
 }
 
-PixelGrey :: u8
+PixelGrey :: struct #packed { grey: u8 }
 PixelGreyAlpha :: struct #packed { grey, alpha: u8 }
 PixelRgb :: struct #packed { r, g, b: u8 }
 PixelRgbAlpha :: struct #packed { r, g, b, alpha: u8 }
@@ -91,7 +103,7 @@ image_get_grey :: proc(img: Image(.grey), x, y: uint) -> PixelGrey {
 	assert(x < img.width)
 	assert(y < img.height)
 
-	return img.raw_data[x + y*img.width]
+	return { img.raw_data[x + y*img.width] }
 }
 image_get_grey_alpha :: proc(img: Image(.grey_alpha), x, y: uint) -> PixelGreyAlpha {
 	assert(img.valid)
@@ -132,4 +144,149 @@ image_get :: proc{
 	image_get_grey_alpha,
 	image_get_rgb,
 	image_get_rgb_alpha,
+}
+
+image_set_grey :: proc(img: Image(.grey), x, y: uint, to: PixelGrey) {
+	assert(img.valid)
+	assert(x < img.width)
+	assert(y < img.height)
+
+	img.raw_data[x + y*img.width] = to.grey
+}
+image_set_grey_alpha :: proc(img: Image(.grey_alpha), x, y: uint, to: PixelGreyAlpha) {
+	assert(img.valid)
+	assert(x < img.width)
+	assert(y < img.height)
+
+	img.raw_data[2*(x + y*img.width) + 0] = to.grey
+	img.raw_data[2*(x + y*img.width) + 1] = to.alpha
+}
+image_set_rgb :: proc(img: Image(.rgb), x, y: uint, to: PixelRgb) {
+	assert(img.valid)
+	assert(x < img.width)
+	assert(y < img.height)
+
+	img.raw_data[3*(x + y*img.width) + 0] = to.r
+	img.raw_data[3*(x + y*img.width) + 1] = to.g
+	img.raw_data[3*(x + y*img.width) + 2] = to.b
+}
+image_set_rgb_alpha :: proc(img: Image(.rgb_alpha), x, y: uint, to: PixelRgbAlpha) {
+	assert(img.valid)
+	assert(x < img.width)
+	assert(y < img.height)
+
+	img.raw_data[4*(x + y*img.width) + 0] = to.r
+	img.raw_data[4*(x + y*img.width) + 1] = to.g
+	img.raw_data[4*(x + y*img.width) + 2] = to.b
+	img.raw_data[4*(x + y*img.width) + 3] = to.alpha
+}
+
+image_set :: proc{
+	image_set_grey,
+	image_set_grey_alpha,
+	image_set_rgb,
+	image_set_rgb_alpha,
+}
+
+// These are here to avoid the overhead of two rounds of asserts
+// Probably unnecessary...
+
+PixelGreyCallback :: proc(x, y: uint, pixel: PixelGrey) -> PixelGrey
+PixelGreyAlphaCallback :: proc(x, y: uint, pixel: PixelGreyAlpha) -> PixelGreyAlpha
+PixelRgbCallback :: proc(x, y: uint, pixel: PixelRgb) -> PixelRgb
+PixelRgbAlphaCallback :: proc(x, y: uint, pixel: PixelRgbAlpha) -> PixelRgbAlpha
+
+image_modify_grey :: proc(img: Image(.grey), cb: PixelGreyCallback) {
+	assert(img.valid)
+
+	for y in 0..<img.height {
+		for x in 0..<img.width {
+			idx := x + y*img.width
+
+			img.raw_data[idx] = cb(x, y, { img.raw_data[idx] }).grey
+		}
+	}
+}
+image_modify_grey_alpha :: proc(img: Image(.grey_alpha), cb: PixelGreyAlphaCallback) {
+	assert(img.valid)
+
+	for y in 0..<img.height {
+		for x in 0..<img.width {
+			idx := 2*(x + y*img.width)
+
+			pixel := cb(x, y, {
+				img.raw_data[idx + 0],
+				img.raw_data[idx + 1],
+			})
+
+			img.raw_data[idx + 0] = pixel.grey
+			img.raw_data[idx + 1] = pixel.alpha
+		}
+	}
+}
+image_modify_rgb :: proc(img: Image(.rgb), cb: PixelRgbCallback) {
+	assert(img.valid)
+
+	for y in 0..<img.height {
+		for x in 0..<img.width {
+			idx := 3*(x + y*img.width)
+
+			pixel := cb(x, y, {
+				img.raw_data[idx + 0],
+				img.raw_data[idx + 1],
+				img.raw_data[idx + 2],
+			})
+
+			img.raw_data[idx + 0] = pixel.r
+			img.raw_data[idx + 1] = pixel.g
+			img.raw_data[idx + 2] = pixel.b
+		}
+	}
+}
+image_modify_rgb_alpha :: proc(img: Image(.rgb_alpha), cb: PixelRgbAlphaCallback) {
+	assert(img.valid)
+
+	for y in 0..<img.height {
+		for x in 0..<img.width {
+			idx := 4*(x + y*img.width)
+
+			pixel := cb(x, y, {
+				img.raw_data[idx + 0],
+				img.raw_data[idx + 1],
+				img.raw_data[idx + 2],
+				img.raw_data[idx + 3],
+			})
+
+			img.raw_data[idx + 0] = pixel.r
+			img.raw_data[idx + 1] = pixel.g
+			img.raw_data[idx + 2] = pixel.b
+			img.raw_data[idx + 3] = pixel.alpha
+		}
+	}
+}
+
+image_modify :: proc{
+	image_modify_grey,
+	image_modify_grey_alpha,
+	image_modify_rgb,
+	image_modify_rgb_alpha,
+}
+
+ImageFileFormat :: enum {
+	png,
+	bmp,
+	tga,
+	jpg,
+	/* hdr, */
+}
+
+image_write_png :: proc(img: Image($format), filename: string) {
+	stbi_write_png(
+		strings.clone_to_cstring(filename, context.temp_allocator),
+		c.int(img.width),
+		c.int(img.height),
+		c.int(format),
+		img.raw_data,
+		c.int(img.width * uint(format)),
+	)
 }
