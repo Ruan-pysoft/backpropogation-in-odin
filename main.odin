@@ -220,7 +220,7 @@ network_new :: proc() -> (result: Network) {
 		new(HiddenLayer(4, 16)),
 		new(OutputLayer(output_size, 4)),
 
-		0.01,
+		0.0625,
 	}
 
 	result.layer_input^ = {
@@ -240,7 +240,7 @@ network_new :: proc() -> (result: Network) {
 		[8]f32{},
 		layer_pointer(result.layer_hidden1),
 		[8][4]f32{},
-		{ sin, dsin },
+		{ activation, dactivation },
 	}
 	hl_init_weights(result.layer_hidden2)
 	result.layer_hidden3^ = {
@@ -248,7 +248,7 @@ network_new :: proc() -> (result: Network) {
 		[8]f32{},
 		layer_pointer(result.layer_hidden2),
 		[8][8]f32{},
-		{ activation, dactivation },
+		{ sin, dsin },
 	}
 	hl_init_weights(result.layer_hidden3)
 	result.layer_hidden4^ = {
@@ -315,15 +315,15 @@ main :: proc() {
 
 	network = network_new()
 
-	img = image_load("GoblinFace.jpg", .rgb)
+	img = image_load("test.png", .rgb)
 	defer image_free(&img)
 	if (!img.valid) {
 		fmt.println(stbi_failure_reason())
 		return
 	}
 
-	generations :: 80
-	print_every :: 8
+	generations :: 10_000
+	print_every :: 250
 
 	fmt.println("Starting network training!")
 	{
@@ -348,6 +348,43 @@ main :: proc() {
 	}
 
 	for g in 0..<generations {
+		if g+1 == 0 {
+			//network.eta = 0.0625
+			network.eta = 3/8.0
+		}
+		if g+1 == 50 {
+			network.eta = 1/4.0
+		}
+		if g+1 == 751 {
+			network.eta = 3/16.0
+		}
+		if g+1 == 3_000 {
+			network.eta = 1/8.0
+		}
+		if g+1 == 6_000 {
+			network.eta = 1/16.0
+		}
+		if g+1 == 8_000 {
+			network.eta = 3/64.0
+		}
+		if g+1 == 9_000 {
+			network.eta -= network.eta/4
+		}
+		if g+1 == 9_500 {
+			network.eta = 1/32.0
+		}
+		/*
+		if g+1 == generations/4 {
+			network.eta /= 10
+		}
+		if g+1 == generations/2 {
+			network.eta /= 16
+		}
+		if g+1 == 3*generations/4 {
+			network.eta /= 64
+		}
+		*/
+
 		for y in 0..<img.height {
 			for x in 0..<img.width {
 				xnorm, ynorm := f32(x) / f32(img.width), f32(y) / f32(img.height)
@@ -361,16 +398,6 @@ main :: proc() {
 					f32(pixel.b)/255,
 				})
 			}
-		}
-
-		if g == generations/4 {
-			network.eta /= 10
-		}
-		if g == generations/2 {
-			network.eta /= 16
-		}
-		if g == 3*generations/4 {
-			network.eta /= 64
 		}
 
 		if (g+1) % print_every == 0 {
@@ -393,7 +420,7 @@ main :: proc() {
 
 			fmt.printf("After {} generations of training, error is: {}\n", g+1, error)
 		} else {
-			fmt.printf("Generation {} complete...\n", g+1)
+			//fmt.printf("Generation {} complete...\n", g+1)
 		}
 	}
 
@@ -411,5 +438,23 @@ main :: proc() {
 		}
 	})
 
-	image_write_jpg(img, "output.jpg", 75)
+	image_write_png(img, "output.png")
+
+	upscaled_w, upscaled_h :: 1024, 1024
+	upscaled_data := new([upscaled_w*upscaled_h*3]u8)
+
+	for y in 0..<upscaled_h {
+		for x in 0..<upscaled_w {
+			network_propogate(&network, [?]f32{
+				f32(x)/f32(upscaled_w),
+				f32(y)/f32(upscaled_h),
+			})
+
+			upscaled_data[3*(y*upscaled_w + x) + 0] = u8(network.layer_output.nodes[0]*255)
+			upscaled_data[3*(y*upscaled_w + x) + 1] = u8(network.layer_output.nodes[1]*255)
+			upscaled_data[3*(y*upscaled_w + x) + 2] = u8(network.layer_output.nodes[2]*255)
+		}
+	}
+
+	stbi_write_png("upscaled.png", upscaled_w, upscaled_h, 3, upscaled_data, 3*upscaled_w)
 }
