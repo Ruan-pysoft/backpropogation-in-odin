@@ -196,13 +196,16 @@ NeuralNet :: struct($input_size, $pre_output_size, $output_size: uint) {
 }
 
 input_size :: 2
-hidden_size :: 4
 output_size :: 3
 
 Network :: struct {
 	layer_input: ^InputLayer(input_size),
-	layer_hidden: ^HiddenLayer(hidden_size, input_size),
-	layer_output: ^OutputLayer(output_size, hidden_size),
+	layer_hidden1: ^HiddenLayer(4, input_size),
+	layer_hidden2: ^HiddenLayer(8, 4),
+	layer_hidden3: ^HiddenLayer(8, 8),
+	layer_hidden4: ^HiddenLayer(16, 8),
+	layer_hidden5: ^HiddenLayer(4, 16),
+	layer_output: ^OutputLayer(output_size, 4),
 
 	eta: f32,
 }
@@ -210,8 +213,12 @@ Network :: struct {
 network_new :: proc() -> (result: Network) {
 	result = {
 		new(InputLayer(input_size)),
-		new(HiddenLayer(hidden_size, input_size)),
-		new(OutputLayer(output_size, hidden_size)),
+		new(HiddenLayer(4, input_size)),
+		new(HiddenLayer(8, 4)),
+		new(HiddenLayer(8, 8)),
+		new(HiddenLayer(16, 8)),
+		new(HiddenLayer(4, 16)),
+		new(OutputLayer(output_size, 4)),
 
 		0.01,
 	}
@@ -219,19 +226,53 @@ network_new :: proc() -> (result: Network) {
 	result.layer_input^ = {
 		[input_size]f32{},
 	}
-	result.layer_hidden^ = {
-		[hidden_size]f32{},
-		[hidden_size]f32{},
+
+	result.layer_hidden1^ = {
+		[4]f32{},
+		[4]f32{},
 		layer_pointer(result.layer_input),
-		[hidden_size][input_size]f32{},
+		[4][input_size]f32{},
+		{ sin, dsin },
+	}
+	hl_init_weights(result.layer_hidden1)
+	result.layer_hidden2^ = {
+		[8]f32{},
+		[8]f32{},
+		layer_pointer(result.layer_hidden1),
+		[8][4]f32{},
+		{ sin, dsin },
+	}
+	hl_init_weights(result.layer_hidden2)
+	result.layer_hidden3^ = {
+		[8]f32{},
+		[8]f32{},
+		layer_pointer(result.layer_hidden2),
+		[8][8]f32{},
 		{ activation, dactivation },
 	}
-	hl_init_weights(result.layer_hidden)
+	hl_init_weights(result.layer_hidden3)
+	result.layer_hidden4^ = {
+		[16]f32{},
+		[16]f32{},
+		layer_pointer(result.layer_hidden3),
+		[16][8]f32{},
+		{ activation, dactivation },
+	}
+	hl_init_weights(result.layer_hidden4)
+	result.layer_hidden5^ = {
+		[4]f32{},
+		[4]f32{},
+		layer_pointer(result.layer_hidden4),
+		[4][16]f32{},
+		{ activation, dactivation },
+	}
+	hl_init_weights(result.layer_hidden5)
+
 	result.layer_output^ = {
 		[output_size]f32{},
 		[output_size]f32{},
-		layer_pointer(result.layer_hidden),
-		[output_size][hidden_size]f32{},
+		layer_pointer(result.layer_hidden5),
+		[output_size][4]f32{},
 		{ activation, dactivation },
 		{ loss, dloss },
 	}
@@ -245,7 +286,11 @@ network_free :: proc(n: ^Network) {
 
 network_propogate :: proc(n: ^Network, input: [input_size]f32) {
 	il_load(n.layer_input, input)
-	hl_propogate(n.layer_hidden)
+	hl_propogate(n.layer_hidden1)
+	hl_propogate(n.layer_hidden2)
+	hl_propogate(n.layer_hidden3)
+	hl_propogate(n.layer_hidden4)
+	hl_propogate(n.layer_hidden5)
 	ol_propogate(n.layer_output)
 }
 
@@ -254,8 +299,12 @@ network_error :: proc(n: Network, expected: [output_size]f32) -> f32 {
 }
 
 network_backprop :: proc(n: ^Network, expected: [output_size]f32) {
-	dss := ol_backprop(n.layer_output, expected, n.eta)
-	hl_backprop(n.layer_hidden, dss, n.eta)
+	dss0 := ol_backprop(n.layer_output, expected, n.eta)
+	dss1 := hl_backprop(n.layer_hidden5, dss0, n.eta)
+	dss2 := hl_backprop(n.layer_hidden4, dss1, n.eta)
+	dss3 := hl_backprop(n.layer_hidden3, dss2, n.eta)
+	dss4 := hl_backprop(n.layer_hidden2, dss3, n.eta)
+	dss5 := hl_backprop(n.layer_hidden1, dss4, n.eta)
 }
 
 network: Network
@@ -275,6 +324,28 @@ main :: proc() {
 
 	generations :: 80
 	print_every :: 8
+
+	fmt.println("Starting network training!")
+	{
+		error: f32 = 0
+
+		for y in 0..<img.height {
+			for x in 0..<img.width {
+				xnorm, ynorm := f32(x) / f32(img.width), f32(y) / f32(img.height)
+				network_propogate(&network, [?]f32{ xnorm, ynorm })
+
+				pixel := image_get(img, x, y)
+
+				error += network_error(network, [output_size]f32 {
+					f32(pixel.r)/255,
+					f32(pixel.g)/255,
+					f32(pixel.b)/255,
+				})
+			}
+		}
+
+		fmt.printf("Before training, error is: {}\n", error)
+	}
 
 	for g in 0..<generations {
 		for y in 0..<img.height {
@@ -321,6 +392,8 @@ main :: proc() {
 			}
 
 			fmt.printf("After {} generations of training, error is: {}\n", g+1, error)
+		} else {
+			fmt.printf("Generation {} complete...\n", g+1)
 		}
 	}
 
