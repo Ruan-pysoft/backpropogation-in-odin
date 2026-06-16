@@ -272,14 +272,6 @@ image_modify :: proc{
 	image_modify_rgb_alpha,
 }
 
-ImageFileFormat :: enum {
-	png,
-	bmp,
-	tga,
-	jpg,
-	/* hdr, */
-}
-
 image_write_png :: proc(img: Image($format), filename: string) {
 	stbi_write_png(
 		strings.clone_to_cstring(filename, context.temp_allocator),
@@ -288,5 +280,36 @@ image_write_png :: proc(img: Image($format), filename: string) {
 		c.int(format),
 		img.raw_data,
 		c.int(img.width * uint(format)),
+	)
+}
+image_write_bmp :: proc(img: Image($format), filename: string) {
+	stbi_write_bmp(
+		strings.clone_to_cstring(filename, context.temp_allocator),
+		c.int(img.width),
+		c.int(img.height),
+		c.int(format),
+		img.raw_data,
+		c.int(img.width * uint(format)),
+	)
+}
+image_write_tga :: proc(img: Image($format), filename: string) {
+	stbi_write_tga(
+		strings.clone_to_cstring(filename, context.temp_allocator),
+		c.int(img.width),
+		c.int(img.height),
+		c.int(format),
+		img.raw_data,
+		c.int(img.width * uint(format)),
+	)
+}
+image_write_jpg :: proc(img: Image($format), filename: string, quality: uint) {
+	stbi_write_jpg(
+		strings.clone_to_cstring(filename, context.temp_allocator),
+		c.int(img.width),
+		c.int(img.height),
+		c.int(format),
+		img.raw_data,
+		c.int(img.width * uint(format)),
+		c.int(quality),
 	)
 }
