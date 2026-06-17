@@ -428,22 +428,17 @@ main :: proc() {
 		fmt.printf("Before training, avg. error is: {}\n", error)
 	}
 
+	error_history := [generations]f32{}
+	eta_history := [generations]f32{}
+	error_max: f32 = 0
+	eta_max: f32 = 0
+
 	for g in 0..<generations {
-		if g+1 == 0 {
-			//network.eta = 0.0625
-			network.eta = 3/8.0
-		}
-		if g+1 == 50 {
-			network.eta = 1/4.0
-		}
-		if g+1 == 751 {
-			network.eta = 3/16.0
-		}
-		if g+1 == 3_000 {
-			network.eta = 1/8.0
-		}
-		if g+1 == 6_000 {
+		if g+1 == 1 {
 			network.eta = 1/16.0
+		}
+		if g+1 == 5_000 {
+			network.eta = 2/64.0
 		}
 		if g+1 == 8_000 {
 			network.eta = 3/64.0
@@ -454,17 +449,9 @@ main :: proc() {
 		if g+1 == 9_500 {
 			network.eta = 1/32.0
 		}
-		/*
-		if g+1 == generations/4 {
-			network.eta /= 10
-		}
-		if g+1 == generations/2 {
-			network.eta /= 16
-		}
-		if g+1 == 3*generations/4 {
-			network.eta /= 64
-		}
-		*/
+
+		eta_history[g] = network.eta
+		eta_max = math.max(eta_max, network.eta)
 
 		for y in 0..<img.height {
 			for x in 0..<img.width {
@@ -481,26 +468,29 @@ main :: proc() {
 			}
 		}
 
-		if (g+1) % print_every == 0 {
-			error: f32 = 0
+		error: f32 = 0
 
-			for y in 0..<img.height {
-				for x in 0..<img.width {
-					xnorm, ynorm := f32(x) / f32(img.width), f32(y) / f32(img.height)
-					network_propogate(&network, [?]f32{ xnorm, ynorm })
+		for y in 0..<img.height {
+			for x in 0..<img.width {
+				xnorm, ynorm := f32(x) / f32(img.width), f32(y) / f32(img.height)
+				network_propogate(&network, [?]f32{ xnorm, ynorm })
 
-					pixel := image_get(img, x, y)
+				pixel := image_get(img, x, y)
 
-					error += network_error(network, [output_size]f32 {
-						f32(pixel.r)/255,
-						f32(pixel.g)/255,
-						f32(pixel.b)/255,
-					})
-				}
+				error += network_error(network, [output_size]f32 {
+					f32(pixel.r)/255,
+					f32(pixel.g)/255,
+					f32(pixel.b)/255,
+				})
 			}
+		}
 
-			error /= f32(img.width*img.height)
+		error /= f32(img.width*img.height)
 
+		error_history[g] = error
+		error_max = max(error_max, error)
+
+		if (g+1) % print_every == 0 {
 			fmt.printf("After {} generations of training, avg error is: {}\n", g+1, error)
 		} else {
 			//fmt.printf("Generation {} complete...\n", g+1)
@@ -580,4 +570,43 @@ main :: proc() {
 	fmt.printf("For extended, x is in [{}, {}]\n", min_x, max_x)
 
 	stbi_write_png("extended.png", extended_total_size, extended_total_size, 3, extended_data, 3*extended_total_size)
+
+	error_graph_height :: 1024
+	error_graph_data := new([error_graph_height*generations*3]u8)
+
+	line_extend :: 3
+
+	for y in 0..<error_graph_height {
+		curr_height := error_graph_height - y - 1
+		for x in 0..<generations {
+			idx := (y*generations + x)*3
+
+			error := error_history[x]
+			error_height := int(f32(error_graph_height)*error/error_max)
+			error_min_height := error_height - line_extend
+			error_max_height := error_height + line_extend
+
+			eta := eta_history[x]
+			eta_height := int(f32(error_graph_height)*eta/eta_max)
+			eta_min_height := eta_height - line_extend
+			eta_max_height := eta_height + line_extend
+			eta_changed := x != 0 && eta != eta_history[x-1]
+
+			if error_min_height <= curr_height && curr_height <= error_max_height {
+				error_graph_data[idx + 0] = 0
+				error_graph_data[idx + 1] = 0
+				error_graph_data[idx + 2] = 0
+			} else if eta_min_height <= curr_height && curr_height <= eta_max_height {
+				error_graph_data[idx + 0] = 0 if !eta_changed else 255
+				error_graph_data[idx + 1] = 0
+				error_graph_data[idx + 2] = 255
+			} else {
+				error_graph_data[idx + 0] = 255
+				error_graph_data[idx + 1] = 255 if !eta_changed else 0
+				error_graph_data[idx + 2] = 255 if !eta_changed else 0
+			}
+		}
+	}
+
+	stbi_write_png("error_graph.png", generations, error_graph_height, 3, error_graph_data, generations*3)
 }
