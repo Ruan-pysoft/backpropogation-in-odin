@@ -31,6 +31,7 @@ adj_sin_act: ActivationFunction: {
 	},
 }
 
+/* appears I got the derivative wrong...
 cutoff_sin_act: ActivationFunction: {
 	proc(x: f32) -> f32 {
 		if -1 <= x || x <= 1 {
@@ -49,6 +50,7 @@ cutoff_sin_act: ActivationFunction: {
 		}
 	},
 }
+*/
 
 // TODO: support softmax output layer?
 
@@ -78,21 +80,21 @@ softplus_act: ActivationFunction: {
 
 swish_act: ActivationFunction: {
 	proc(x: f32) -> f32 { return x*logistic_act.func(x) },
-	//proc(x: f32) -> f32 { return logistic_act.func(x) + x*logistic_act.dfunc(x) },
-	proc(x: f32) -> f32 {
+	proc(x: f32) -> f32 { return logistic_act.func(x) + x*logistic_act.dfunc(x) },
+	/*proc(x: f32) -> f32 {
 		coshx2 := math.cosh(x/2)
 		return (x + math.sinh(x))/(4*coshx2*coshx2) + 1/2
-	}
+	}*/
 }
 
 mish_act: ActivationFunction: {
 	proc(x: f32) -> f32 { return x*math.tanh(swish_act.func(x)) },
 	proc(x: f32) -> f32 {
 		swish_val := swish_act.func(x)
-		return (0
-			+ tanh_act.func(swish_val)
-			+ x*tanh_act.dfunc(swish_val)*swish_act.dfunc(x)
-		)
+		return (0 +
+			tanh_act.func(swish_val) +
+			x*tanh_act.dfunc(swish_val)*swish_act.dfunc(x) +
+		0)
 	}
 }
 
@@ -338,7 +340,7 @@ network_new :: proc() -> (result: Network) {
 		[4]f32{},
 		layer_pointer(result.layer_hidden4),
 		[4][16]f32{},
-		logistic_act,
+		tanh_act,
 	}
 	hl_init_weights(result.layer_hidden5)
 
