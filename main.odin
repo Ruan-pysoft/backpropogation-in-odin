@@ -241,6 +241,8 @@ ol_get_error :: proc(ol: OutputLayer($size, $prevsize), expected: [size]f32) -> 
 		error += ol.loss.func(expected[i], ol.nodes[i])
 	}
 
+	error /= f32(size)
+
 	return
 }
 
@@ -421,7 +423,9 @@ main :: proc() {
 			}
 		}
 
-		fmt.printf("Before training, error is: {}\n", error)
+		error /= f32(img.width*img.height)
+
+		fmt.printf("Before training, avg. error is: {}\n", error)
 	}
 
 	for g in 0..<generations {
@@ -495,7 +499,9 @@ main :: proc() {
 				}
 			}
 
-			fmt.printf("After {} generations of training, error is: {}\n", g+1, error)
+			error /= f32(img.width*img.height)
+
+			fmt.printf("After {} generations of training, avg error is: {}\n", g+1, error)
 		} else {
 			//fmt.printf("Generation {} complete...\n", g+1)
 		}
@@ -536,7 +542,7 @@ main :: proc() {
 	stbi_write_png("upscaled.png", upscaled_w, upscaled_h, 3, upscaled_data, 3*upscaled_w)
 
 	extended_inner_size :: 256
-	extended_total_size :: extended_inner_size*3
+	extended_total_size :: extended_inner_size*7
 	extension_size :: (extended_total_size-extended_inner_size)/2
 	extended_data := new([extended_total_size*extended_total_size*3]u8)
 
