@@ -401,8 +401,8 @@ main :: proc() {
 		return
 	}
 
-	generations :: 10_000
-	print_every :: 250
+	generations :: 100_000
+	print_every :: 2500
 
 	fmt.println("Starting network training!")
 	{
@@ -428,8 +428,8 @@ main :: proc() {
 		fmt.printf("Before training, avg. error is: {}\n", error)
 	}
 
-	error_history := [generations]f32{}
-	eta_history := [generations]f32{}
+	error_history := new([generations]f32)
+	eta_history := new([generations]f32)
 	error_max: f32 = 0
 	eta_max: f32 = 0
 
@@ -448,6 +448,18 @@ main :: proc() {
 		}
 		if g+1 == 9_500 {
 			network.eta = 1/32.0
+		}
+		if g+1 == 10_500 {
+			network.eta = 1/64.0
+		}
+		if g+1 == 20_000 {
+			network.eta = 1/128.0
+		}
+		if g+1 == 50_000 {
+			network.eta = 1/256.0
+		}
+		if g+1 == 75_000 {
+			network.eta = 1/512.0
 		}
 
 		eta_history[g] = network.eta
