@@ -534,4 +534,44 @@ main :: proc() {
 	}
 
 	stbi_write_png("upscaled.png", upscaled_w, upscaled_h, 3, upscaled_data, 3*upscaled_w)
+
+	extended_inner_size :: 256
+	extended_total_size :: extended_inner_size*3
+	extension_size :: (extended_total_size-extended_inner_size)/2
+	extended_data := new([extended_total_size*extended_total_size*3]u8)
+
+	min_x: f32 = 0
+	max_x: f32 = 0
+	for y in 0..<extended_total_size {
+		for x in 0..<extended_total_size {
+			if (
+				(x - extension_size == -1 && -1 <= y - extension_size && y - extension_size <= extended_inner_size) ||
+				(x - extension_size == extended_inner_size && -1 <= y - extension_size && y - extension_size <= extended_inner_size) ||
+				(y - extension_size == -1 && -1 <= x - extension_size && x - extension_size <= extended_inner_size) ||
+				(y - extension_size == extended_inner_size && -1 <= x - extension_size && x - extension_size <= extended_inner_size)
+			) {
+				extended_data[3*(y*extended_total_size + x) + 0] = 0
+				extended_data[3*(y*extended_total_size + x) + 1] = 0
+				extended_data[3*(y*extended_total_size + x) + 2] = 0
+
+				continue
+			}
+
+			coords := [?]f32{
+				f32(x - extension_size) / f32(extended_inner_size),
+				f32(y - extension_size) / f32(extended_inner_size),
+			}
+			min_x = math.min(min_x, coords[0])
+			max_x = math.max(max_x, coords[0])
+			network_propogate(&network, coords)
+
+			extended_data[3*(y*extended_total_size + x) + 0] = u8(network.layer_output.nodes[0]*255)
+			extended_data[3*(y*extended_total_size + x) + 1] = u8(network.layer_output.nodes[1]*255)
+			extended_data[3*(y*extended_total_size + x) + 2] = u8(network.layer_output.nodes[2]*255)
+		}
+	}
+
+	fmt.printf("For extended, x is in [{}, {}]\n", min_x, max_x)
+
+	stbi_write_png("extended.png", extended_total_size, extended_total_size, 3, extended_data, 3*extended_total_size)
 }
