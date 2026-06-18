@@ -383,7 +383,7 @@ network_new :: proc() -> (result: Network) {
 		layer_pointer(result.layer_input),
 		[8][input_size]f32{},
 		0,
-		adj_sin_act,
+		sin_act,
 	}
 	hl_init_weights(result.layer_hidden1)
 	result.layer_hidden2^ = {
@@ -483,8 +483,8 @@ main :: proc() {
 	network = network_new()
 
 	//img = image_load("GoblinFace_small.jpg", .rgb)
-	img = image_load("test.png", .rgb_alpha)
-	//img = image_load("my_eye_plain.png", .rgb_alpha)
+	//img = image_load("test.png", .rgb_alpha)
+	img = image_load("my_eye.png", .rgb_alpha)
 	defer image_free(&img)
 	if (!img.valid) {
 		fmt.println(stbi_failure_reason())
