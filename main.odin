@@ -9,6 +9,11 @@ ActivationFunction :: struct {
 	func, dfunc: proc(f32) -> f32,
 }
 
+linear_act: ActivationFunction: {
+	proc(x: f32) -> f32 { return x },
+	proc(f32) -> f32 { return 1 },
+}
+
 logistic_act: ActivationFunction: {
 	proc(x: f32) -> f32 { return 1 / (1 + math.exp(-x)) },
 	proc(x: f32) -> f32 {
@@ -107,6 +112,11 @@ quad_loss: LossFunction: {
 	proc(y, o: f32) -> f32 { return 2*(o-y) },
 }
 
+mad_loss: LossFunction: {
+	proc(y, o: f32) -> f32 { return math.abs(o-y) },
+	proc(y, o: f32) -> f32 { return -1 if o-y < 0 else 1 },
+}
+
 LayerType :: enum {
 	input,
 	hidden,
@@ -134,6 +144,7 @@ HiddenLayer :: struct($size, $prevsize: uint) {
 	dnodes: [size]f32,
 	prev_layer: LayerPointer(prevsize),
 	weights: [size][prevsize]f32,
+	biases: [size]f32,
 	act: ActivationFunction,
 }
 
@@ -146,12 +157,14 @@ hl_init_weights :: proc(hl: ^HiddenLayer($size, $prevsize)) {
 		for j in 0..<prevsize {
 			hl.weights[i][j] = rand.float32()*2 - 1
 		}
+
+		hl.biases[i] = rand.float32()*2 - 1
 	}
 }
 
 hl_propogate :: proc(hl: ^HiddenLayer($size, $prevsize)) {
 	for i in 0..<size {
-		acc: f32 = 0
+		acc: f32 = hl.biases[i]
 
 		for j in 0..<prevsize {
 			acc += lp_get(hl.prev_layer, j)*hl.weights[i][j]
@@ -163,19 +176,64 @@ hl_propogate :: proc(hl: ^HiddenLayer($size, $prevsize)) {
 }
 
 hl_backprop :: proc(hl: ^HiddenLayer($size, $prevsize), next_deltas_sums: [size]f32, eta: f32) -> (deltas_sums: [prevsize]f32) {
+	// Also I realise the comments are criptic,
+	// but I basically just implemented wikipedia's algorithm while I was zonked out on sleep deprivations
+	// so I'm sitting here with a piece of paper deriving how all this works
+	// and then writing a comment to document it somewhat
+	// ...unfortunately I can't include a diagram in the comments
+
+	// In this function:
+	// For each weight, we find the partial derivative of the loss function with respect to that weight
+	// This partial derivative works out to:
+	//   (dL/dw) = (dL/dy)(dy/dw) = (dL/dy)(df(...)/dw) = (dL/dy)(xf'(...))
+	// where L is the loss function,
+	// y is the output of the current node,
+	// f is the activation function,
+	// ... is sum(w*x) + b where b is the bias,
+	// and x is the input associated with the current weight
+
+	// Then for the input associated with each weight,
+	// we want to calculate (dL/dx) which becomes (dL/dy) for that backprop function
+	//   (dL/dx) = (dL/dy)(dy/dx) = (dL/dy)(df(...)/dx) = (dL/dy)(wf'(...))
+
 	deltas_sums = [prevsize]f32{}
 
 	for i in 0..<size {
+		// Adjusting the inputs of node i
+
+		// (dL/dy) = next_deltas_sums[i]
+		// f'(...) = hl.dnodes[i]
+
+		// d = (dL/dy) * f'(...)
 		delta := next_deltas_sums[i] * hl.dnodes[i]
 
 		for j in 0..<prevsize {
-			deltas_sums[j] += hl.weights[i][j]*delta
+			// now for each weight, we can find its partial derivative as
+			//   xd
+			// where x is its associated input
+			// and d is the variable `delta`.
 
-			o := lp_get(hl.prev_layer, j)
-			change := -eta * o * delta
+			// we can also find (dL/dx) = wd
+			// (partial derivative through this node; still needs to be added to partials through the other nodes)
+			// and add that to deltas_sums[j]
 
-			hl.weights[i][j] += change
+			// w = hl.weights[i][j]
+			w := hl.weights[i][j]
+			// x = lp_get(hl.prev_layer, j)
+			x := lp_get(hl.prev_layer, j)
+
+			deltas_sums[j] += w*delta
+
+			partial_derivative := x*delta
+
+			hl.weights[i][j] += -eta*partial_derivative
 		}
+
+		// for the bias, its partial derivative is simply d
+		// since (where b is the bias):
+		//   (dL/db) = (dL/dy)(dy/db) = (dL/dy)(df(...)/db) = (dL/dy)f'(...) = d
+
+		hl.biases[i] += -eta*delta
 	}
 
 	return deltas_sums
@@ -186,6 +244,7 @@ OutputLayer :: struct($size, $prevsize: uint) {
 	dnodes: [size]f32,
 	prev_layer: LayerPointer(prevsize),
 	weights: [size][prevsize]f32,
+	biases: [size]f32,
 	act: ActivationFunction,
 	loss: LossFunction,
 }
@@ -199,36 +258,47 @@ ol_init_weights :: proc(ol: ^OutputLayer($size, $prevsize)) {
 		for j in 0..<prevsize {
 			ol.weights[i][j] = rand.float32()*2 - 1
 		}
+
+		ol.biases[i] = rand.float32()*2 - 1
 	}
 }
 
 ol_propogate :: proc(ol: ^OutputLayer($size, $prevsize)) {
 	for i in 0..<size {
-		acc: f32 = 0
+		acc: f32 = ol.biases[i]
 
 		for j in 0..<prevsize {
 			acc += lp_get(ol.prev_layer, j)*ol.weights[i][j]
 		}
 
 		ol.nodes[i] = ol.act.func(acc)
-		ol.dnodes[i] = ol.act.func(acc)
+		ol.dnodes[i] = ol.act.dfunc(acc)
 	}
 }
 
 ol_backprop :: proc(ol: ^OutputLayer($size, $prevsize), expected: [size]f32, eta: f32) -> (deltas_sums: [prevsize]f32) {
+	// see comments in the hl_backprop function
+
 	deltas_sums = [prevsize]f32{}
 
 	for i in 0..<size {
+		// (dL/dy) = ol.loss.dfunc(expected[i], ol.nodes[i])
+
+		// d = (dL/dy) * f'(...)
 		delta := ol.loss.dfunc(expected[i], ol.nodes[i]) * ol.dnodes[i]
 
 		for j in 0..<prevsize {
-			deltas_sums[j] += ol.weights[i][j]*delta
+			w := ol.weights[i][j]
+			x := lp_get(ol.prev_layer, j)
 
-			o := lp_get(ol.prev_layer, j)
-			change := -eta * o * delta
+			deltas_sums[j] += w*delta
 
-			ol.weights[i][j] += change
+			partial_derivative := x*delta
+
+			ol.weights[i][j] += -eta*partial_derivative
 		}
+
+		ol.biases[i] += -eta*delta
 	}
 
 	return deltas_sums
@@ -278,11 +348,12 @@ output_size :: 3
 
 Network :: struct {
 	layer_input: ^InputLayer(input_size),
-	layer_hidden1: ^HiddenLayer(4, input_size),
-	layer_hidden2: ^HiddenLayer(8, 4),
-	layer_hidden3: ^HiddenLayer(8, 8),
-	layer_hidden4: ^HiddenLayer(16, 8),
-	layer_hidden5: ^HiddenLayer(4, 16),
+	layer_hidden1: ^HiddenLayer(8, input_size),
+	layer_hidden2: ^HiddenLayer(4, 8),
+	layer_hidden3: ^HiddenLayer(16, 4),
+	layer_hidden4: ^HiddenLayer(32, 16),
+	layer_hidden5: ^HiddenLayer(8, 32),
+	layer_hidden6: ^HiddenLayer(4, 8),
 	layer_output: ^OutputLayer(output_size, 4),
 
 	eta: f32,
@@ -291,11 +362,12 @@ Network :: struct {
 network_new :: proc() -> (result: Network) {
 	result = {
 		new(InputLayer(input_size)),
-		new(HiddenLayer(4, input_size)),
-		new(HiddenLayer(8, 4)),
-		new(HiddenLayer(8, 8)),
-		new(HiddenLayer(16, 8)),
-		new(HiddenLayer(4, 16)),
+		new(HiddenLayer(8, input_size)),
+		new(HiddenLayer(4, 8)),
+		new(HiddenLayer(16, 4)),
+		new(HiddenLayer(32, 16)),
+		new(HiddenLayer(8, 32)),
+		new(HiddenLayer(4, 8)),
 		new(OutputLayer(output_size, 4)),
 
 		0.0625,
@@ -306,51 +378,66 @@ network_new :: proc() -> (result: Network) {
 	}
 
 	result.layer_hidden1^ = {
-		[4]f32{},
-		[4]f32{},
+		[8]f32{},
+		[8]f32{},
 		layer_pointer(result.layer_input),
-		[4][input_size]f32{},
-		sin_act,
+		[8][input_size]f32{},
+		0,
+		adj_sin_act,
 	}
 	hl_init_weights(result.layer_hidden1)
 	result.layer_hidden2^ = {
-		[8]f32{},
-		[8]f32{},
+		[4]f32{},
+		[4]f32{},
 		layer_pointer(result.layer_hidden1),
-		[8][4]f32{},
+		[4][8]f32{},
+		0,
 		logistic_act,
 	}
 	hl_init_weights(result.layer_hidden2)
 	result.layer_hidden3^ = {
-		[8]f32{},
-		[8]f32{},
+		[16]f32{},
+		[16]f32{},
 		layer_pointer(result.layer_hidden2),
-		[8][8]f32{},
+		[16][4]f32{},
+		0,
 		sin_act,
 	}
 	hl_init_weights(result.layer_hidden3)
 	result.layer_hidden4^ = {
-		[16]f32{},
-		[16]f32{},
+		[32]f32{},
+		[32]f32{},
 		layer_pointer(result.layer_hidden3),
-		[16][8]f32{},
+		[32][16]f32{},
+		0,
 		logistic_act,
 	}
 	hl_init_weights(result.layer_hidden4)
 	result.layer_hidden5^ = {
-		[4]f32{},
-		[4]f32{},
+		[8]f32{},
+		[8]f32{},
 		layer_pointer(result.layer_hidden4),
-		[4][16]f32{},
+		[8][32]f32{},
+		0,
 		tanh_act,
 	}
 	hl_init_weights(result.layer_hidden5)
+	result.layer_hidden6^ = {
+		[4]f32{},
+		[4]f32{},
+		layer_pointer(result.layer_hidden5),
+		[4][8]f32{},
+		0,
+		tanh_act,
+	}
+	hl_init_weights(result.layer_hidden6)
 
 	result.layer_output^ = {
 		[output_size]f32{},
 		[output_size]f32{},
-		layer_pointer(result.layer_hidden5),
+		layer_pointer(result.layer_hidden6),
 		[output_size][4]f32{},
+		0,
 		logistic_act,
 		quad_loss,
 	}
@@ -369,6 +456,7 @@ network_propogate :: proc(n: ^Network, input: [input_size]f32) {
 	hl_propogate(n.layer_hidden3)
 	hl_propogate(n.layer_hidden4)
 	hl_propogate(n.layer_hidden5)
+	hl_propogate(n.layer_hidden6)
 	ol_propogate(n.layer_output)
 }
 
@@ -377,16 +465,17 @@ network_error :: proc(n: Network, expected: [output_size]f32) -> f32 {
 }
 
 network_backprop :: proc(n: ^Network, expected: [output_size]f32) {
-	dss0 := ol_backprop(n.layer_output, expected, n.eta)
-	dss1 := hl_backprop(n.layer_hidden5, dss0, n.eta)
-	dss2 := hl_backprop(n.layer_hidden4, dss1, n.eta)
-	dss3 := hl_backprop(n.layer_hidden3, dss2, n.eta)
-	dss4 := hl_backprop(n.layer_hidden2, dss3, n.eta)
-	dss5 := hl_backprop(n.layer_hidden1, dss4, n.eta)
+	dssO := ol_backprop(n.layer_output, expected, n.eta)
+	dss6 := hl_backprop(n.layer_hidden6, dssO, n.eta)
+	dss5 := hl_backprop(n.layer_hidden5, dss6, n.eta)
+	dss4 := hl_backprop(n.layer_hidden4, dss5, n.eta)
+	dss3 := hl_backprop(n.layer_hidden3, dss4, n.eta)
+	dss2 := hl_backprop(n.layer_hidden2, dss3, n.eta)
+	dss1 := hl_backprop(n.layer_hidden1, dss2, n.eta)
 }
 
 network: Network
-img: Image(.rgb)
+img: Image(.rgb_alpha)
 
 main :: proc() {
 	rand.reset(42)
@@ -394,15 +483,16 @@ main :: proc() {
 	network = network_new()
 
 	//img = image_load("GoblinFace_small.jpg", .rgb)
-	img = image_load("test.png", .rgb)
+	img = image_load("test.png", .rgb_alpha)
+	//img = image_load("my_eye_plain.png", .rgb_alpha)
 	defer image_free(&img)
 	if (!img.valid) {
 		fmt.println(stbi_failure_reason())
 		return
 	}
 
-	generations :: 100_000
-	print_every :: 2500
+	generations :: 10_000
+	print_every :: 250
 
 	fmt.println("Starting network training!")
 	{
@@ -410,10 +500,11 @@ main :: proc() {
 
 		for y in 0..<img.height {
 			for x in 0..<img.width {
+				pixel := image_get(img, x, y)
+				if pixel.alpha != 255 { continue }
+
 				xnorm, ynorm := f32(x) / f32(img.width), f32(y) / f32(img.height)
 				network_propogate(&network, [?]f32{ xnorm, ynorm })
-
-				pixel := image_get(img, x, y)
 
 				error += network_error(network, [output_size]f32 {
 					f32(pixel.r)/255,
@@ -438,16 +529,16 @@ main :: proc() {
 			network.eta = 1/16.0
 		}
 		if g+1 == 5_000 {
-			network.eta = 2/64.0
+			network.eta = 1/32.0
 		}
-		if g+1 == 8_000 {
+		/*if g+1 == 8_000 {
 			network.eta = 3/64.0
-		}
+		}*/
 		if g+1 == 9_000 {
 			network.eta -= network.eta/4
 		}
 		if g+1 == 9_500 {
-			network.eta = 1/32.0
+			network.eta = 1/64.0
 		}
 		if g+1 == 10_500 {
 			network.eta = 1/64.0
@@ -467,10 +558,11 @@ main :: proc() {
 
 		for y in 0..<img.height {
 			for x in 0..<img.width {
+				pixel := image_get(img, x, y)
+				if pixel.alpha != 255 { continue }
+
 				xnorm, ynorm := f32(x) / f32(img.width), f32(y) / f32(img.height)
 				network_propogate(&network, [?]f32{ xnorm, ynorm })
-
-				pixel := image_get(img, x, y)
 
 				network_backprop(&network, [output_size]f32 {
 					f32(pixel.r)/255,
@@ -484,10 +576,11 @@ main :: proc() {
 
 		for y in 0..<img.height {
 			for x in 0..<img.width {
+				pixel := image_get(img, x, y)
+				if pixel.alpha != 255 { continue }
+
 				xnorm, ynorm := f32(x) / f32(img.width), f32(y) / f32(img.height)
 				network_propogate(&network, [?]f32{ xnorm, ynorm })
-
-				pixel := image_get(img, x, y)
 
 				error += network_error(network, [output_size]f32 {
 					f32(pixel.r)/255,
@@ -512,7 +605,8 @@ main :: proc() {
 	fmt.printf("{}x{}\n", img.width, img.height)
 	fmt.printf("Top-left pixel: {}\n", image_get(img, 0, 0))
 
-	image_modify(img, proc(x, y: uint, pixel: PixelRgb) -> PixelRgb {
+	image_modify(img, proc(x, y: uint, pixel: PixelRgbAlpha) -> PixelRgbAlpha {
+		if pixel.alpha != 255 { return pixel }
 		xnorm, ynorm := f32(x) / f32(img.width), f32(y) / f32(img.height)
 		network_propogate(&network, [?]f32{ xnorm, ynorm })
 		//fmt.printf("output for {},{} = {}\n", x, y, network.layer_output.nodes)
@@ -520,6 +614,7 @@ main :: proc() {
 			u8(network.layer_output.nodes[0]*255),
 			u8(network.layer_output.nodes[1]*255),
 			u8(network.layer_output.nodes[2]*255),
+			255,
 		}
 	})
 
