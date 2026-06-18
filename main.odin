@@ -491,8 +491,8 @@ main :: proc() {
 		return
 	}
 
-	generations :: 10_000
-	print_every :: 250
+	generations :: 100_000
+	print_every :: 2500
 
 	fmt.println("Starting network training!")
 	{
