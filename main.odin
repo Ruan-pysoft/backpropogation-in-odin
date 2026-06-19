@@ -478,21 +478,23 @@ network: Network
 img: Image(.rgb_alpha)
 
 main :: proc() {
+	ok: bool
+
 	rand.reset(42)
 
 	network = network_new()
 
-	//img = image_load("GoblinFace_small.jpg", .rgb)
-	//img = image_load("test.png", .rgb_alpha)
-	img = image_load("my_eye.png", .rgb_alpha)
+	//img, ok = image_load("GoblinFace_small.jpg", .rgb)
+	img, ok = image_load("test.png", .rgb_alpha)
+	//img, ok = image_load("grass_block_side.png", .rgb_alpha)
 	defer image_free(&img)
-	if (!img.valid) {
+	if !ok {
 		fmt.println(stbi_failure_reason())
 		return
 	}
 
-	generations :: 100_000
-	print_every :: 2500
+	generations :: 10_000
+	print_every :: 250
 
 	fmt.println("Starting network training!")
 	{
@@ -620,23 +622,25 @@ main :: proc() {
 
 	image_write_png(img, "output.png")
 
-	upscaled_w, upscaled_h :: 1024, 1024
-	upscaled_data := new([upscaled_w*upscaled_h*3]u8)
+	upscaled_img, err := image_new(.rgb, 1024, 1024)
+	assert(err == nil)
 
-	for y in 0..<upscaled_h {
-		for x in 0..<upscaled_w {
+	for y in 0..<upscaled_img.height {
+		for x in 0..<upscaled_img.width {
 			network_propogate(&network, [?]f32{
-				f32(x)/f32(upscaled_w),
-				f32(y)/f32(upscaled_h),
+				f32(x)/f32(upscaled_img.width),
+				f32(y)/f32(upscaled_img.height),
 			})
 
-			upscaled_data[3*(y*upscaled_w + x) + 0] = u8(network.layer_output.nodes[0]*255)
-			upscaled_data[3*(y*upscaled_w + x) + 1] = u8(network.layer_output.nodes[1]*255)
-			upscaled_data[3*(y*upscaled_w + x) + 2] = u8(network.layer_output.nodes[2]*255)
+			image_set(upscaled_img, x, y, PixelRgb {
+				u8(network.layer_output.nodes[0]*255),
+				u8(network.layer_output.nodes[1]*255),
+				u8(network.layer_output.nodes[2]*255),
+			})
 		}
 	}
 
-	stbi_write_png("upscaled.png", upscaled_w, upscaled_h, 3, upscaled_data, 3*upscaled_w)
+	image_write_png(upscaled_img, "upscaled.png")
 
 	extended_inner_size :: 256
 	extended_total_size :: extended_inner_size*7
@@ -678,6 +682,7 @@ main :: proc() {
 
 	stbi_write_png("extended.png", extended_total_size, extended_total_size, 3, extended_data, 3*extended_total_size)
 
+	/*
 	error_graph_height :: 1024
 	error_graph_data := new([error_graph_height*generations*3]u8)
 
@@ -716,4 +721,5 @@ main :: proc() {
 	}
 
 	stbi_write_png("error_graph.png", generations, error_graph_height, 3, error_graph_data, generations*3)
+	*/
 }

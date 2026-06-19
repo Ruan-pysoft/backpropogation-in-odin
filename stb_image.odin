@@ -1,7 +1,9 @@
 package backprop
 
+import "base:runtime"
 import "core:c"
 import "core:fmt"
+import "core:mem"
 import "core:strings"
 
 when ODIN_OS == .Windows do foreign import "stb_image.lib"
@@ -59,8 +61,8 @@ foreign stb_image {
 }
 
 Image :: struct($PixelFormat: StbiFormat) {
-	valid: bool,
 	width, height: uint,
+	allocation_source: enum { stbi, odin },
 	raw_data: StbiImage,
 }
 
@@ -69,44 +71,56 @@ PixelGreyAlpha :: struct #packed { grey, alpha: u8 }
 PixelRgb :: struct #packed { r, g, b: u8 }
 PixelRgbAlpha :: struct #packed { r, g, b, alpha: u8 }
 
-image_load :: proc(file: string, $format: StbiFormat) -> Image(format) {
+image_new :: proc($format: StbiFormat, w, h: uint) -> (img: Image(format), err: runtime.Allocator_Error) {
+	raw_data := mem.alloc(int(size_of(u8)*w*h*uint(format)), align_of(u8)) or_return
+
+	return {
+		width = w,
+		height = h,
+		allocation_source = .odin,
+		raw_data = auto_cast raw_data,
+	}, nil
+}
+
+image_load :: proc(file: string, $format: StbiFormat) -> (img: Image(format), ok: bool) {
 	w, h, c: c.int = 0, 0, 0
 	img_raw := stbi_load(
 		strings.clone_to_cstring(file, context.temp_allocator),
 		&w, &h, &c, format
 	)
 	if (img_raw == nil) {
-		return {
-			valid = false,
-			width = 0,
-			height = 0,
-			raw_data = nil,
-		}
+		return { }, false
 	}
 	return {
-		valid = true,
 		width = uint(w),
 		height = uint(h),
+		allocation_source = .stbi,
 		raw_data = img_raw,
-	}
+	}, true
 }
 
 image_free :: proc(img: ^Image($format)) {
-	if (img.valid) {
-		stbi_image_free(img.raw_data)
+	assert(img != nil)
+	if img.raw_data != nil {
+		switch img.allocation_source {
+		case .stbi:
+			stbi_image_free(img.raw_data)
+		case .odin:
+			free(img.raw_data)
+		}
 	}
-	img.valid = false
+	img^ = {}
 }
 
 image_get_grey :: proc(img: Image(.grey), x, y: uint) -> PixelGrey {
-	assert(img.valid)
+	assert(img.raw_data != nil)
 	assert(x < img.width)
 	assert(y < img.height)
 
 	return { img.raw_data[x + y*img.width] }
 }
 image_get_grey_alpha :: proc(img: Image(.grey_alpha), x, y: uint) -> PixelGreyAlpha {
-	assert(img.valid)
+	assert(img.raw_data != nil)
 	assert(x < img.width)
 	assert(y < img.height)
 
@@ -116,7 +130,7 @@ image_get_grey_alpha :: proc(img: Image(.grey_alpha), x, y: uint) -> PixelGreyAl
 	return { g, a }
 }
 image_get_rgb :: proc(img: Image(.rgb), x, y: uint) -> PixelRgb {
-	assert(img.valid)
+	assert(img.raw_data != nil)
 	assert(x < img.width)
 	assert(y < img.height)
 
@@ -127,7 +141,7 @@ image_get_rgb :: proc(img: Image(.rgb), x, y: uint) -> PixelRgb {
 	return { r, g, b }
 }
 image_get_rgb_alpha :: proc(img: Image(.rgb_alpha), x, y: uint) -> PixelRgbAlpha {
-	assert(img.valid)
+	assert(img.raw_data != nil)
 	assert(x < img.width)
 	assert(y < img.height)
 
@@ -147,14 +161,14 @@ image_get :: proc{
 }
 
 image_set_grey :: proc(img: Image(.grey), x, y: uint, to: PixelGrey) {
-	assert(img.valid)
+	assert(img.raw_data != nil)
 	assert(x < img.width)
 	assert(y < img.height)
 
 	img.raw_data[x + y*img.width] = to.grey
 }
 image_set_grey_alpha :: proc(img: Image(.grey_alpha), x, y: uint, to: PixelGreyAlpha) {
-	assert(img.valid)
+	assert(img.raw_data != nil)
 	assert(x < img.width)
 	assert(y < img.height)
 
@@ -162,7 +176,7 @@ image_set_grey_alpha :: proc(img: Image(.grey_alpha), x, y: uint, to: PixelGreyA
 	img.raw_data[2*(x + y*img.width) + 1] = to.alpha
 }
 image_set_rgb :: proc(img: Image(.rgb), x, y: uint, to: PixelRgb) {
-	assert(img.valid)
+	assert(img.raw_data != nil)
 	assert(x < img.width)
 	assert(y < img.height)
 
@@ -171,7 +185,7 @@ image_set_rgb :: proc(img: Image(.rgb), x, y: uint, to: PixelRgb) {
 	img.raw_data[3*(x + y*img.width) + 2] = to.b
 }
 image_set_rgb_alpha :: proc(img: Image(.rgb_alpha), x, y: uint, to: PixelRgbAlpha) {
-	assert(img.valid)
+	assert(img.raw_data != nil)
 	assert(x < img.width)
 	assert(y < img.height)
 
@@ -197,7 +211,7 @@ PixelRgbCallback :: proc(x, y: uint, pixel: PixelRgb) -> PixelRgb
 PixelRgbAlphaCallback :: proc(x, y: uint, pixel: PixelRgbAlpha) -> PixelRgbAlpha
 
 image_modify_grey :: proc(img: Image(.grey), cb: PixelGreyCallback) {
-	assert(img.valid)
+	assert(img.raw_data != nil)
 
 	for y in 0..<img.height {
 		for x in 0..<img.width {
@@ -208,7 +222,7 @@ image_modify_grey :: proc(img: Image(.grey), cb: PixelGreyCallback) {
 	}
 }
 image_modify_grey_alpha :: proc(img: Image(.grey_alpha), cb: PixelGreyAlphaCallback) {
-	assert(img.valid)
+	assert(img.raw_data != nil)
 
 	for y in 0..<img.height {
 		for x in 0..<img.width {
@@ -225,7 +239,7 @@ image_modify_grey_alpha :: proc(img: Image(.grey_alpha), cb: PixelGreyAlphaCallb
 	}
 }
 image_modify_rgb :: proc(img: Image(.rgb), cb: PixelRgbCallback) {
-	assert(img.valid)
+	assert(img.raw_data != nil)
 
 	for y in 0..<img.height {
 		for x in 0..<img.width {
@@ -244,7 +258,7 @@ image_modify_rgb :: proc(img: Image(.rgb), cb: PixelRgbCallback) {
 	}
 }
 image_modify_rgb_alpha :: proc(img: Image(.rgb_alpha), cb: PixelRgbAlphaCallback) {
-	assert(img.valid)
+	assert(img.raw_data != nil)
 
 	for y in 0..<img.height {
 		for x in 0..<img.width {
