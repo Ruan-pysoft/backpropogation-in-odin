@@ -503,7 +503,7 @@ main :: proc() {
 		for y in 0..<img.height {
 			for x in 0..<img.width {
 				pixel := image_get(img, x, y)
-				if pixel.alpha != 255 { continue }
+				if pixel.a != 255 { continue }
 
 				xnorm, ynorm := f32(x) / f32(img.width), f32(y) / f32(img.height)
 				network_propogate(&network, [?]f32{ xnorm, ynorm })
@@ -561,7 +561,7 @@ main :: proc() {
 		for y in 0..<img.height {
 			for x in 0..<img.width {
 				pixel := image_get(img, x, y)
-				if pixel.alpha != 255 { continue }
+				if pixel.a != 255 { continue }
 
 				xnorm, ynorm := f32(x) / f32(img.width), f32(y) / f32(img.height)
 				network_propogate(&network, [?]f32{ xnorm, ynorm })
@@ -579,7 +579,7 @@ main :: proc() {
 		for y in 0..<img.height {
 			for x in 0..<img.width {
 				pixel := image_get(img, x, y)
-				if pixel.alpha != 255 { continue }
+				if pixel.a != 255 { continue }
 
 				xnorm, ynorm := f32(x) / f32(img.width), f32(y) / f32(img.height)
 				network_propogate(&network, [?]f32{ xnorm, ynorm })
@@ -608,7 +608,7 @@ main :: proc() {
 	fmt.printf("Top-left pixel: {}\n", image_get(img, 0, 0))
 
 	image_modify(img, proc(x, y: uint, pixel: PixelRgbAlpha) -> PixelRgbAlpha {
-		if pixel.alpha != 255 { return pixel }
+		if pixel.a != 255 { return pixel }
 		xnorm, ynorm := f32(x) / f32(img.width), f32(y) / f32(img.height)
 		network_propogate(&network, [?]f32{ xnorm, ynorm })
 		//fmt.printf("output for {},{} = {}\n", x, y, network.layer_output.nodes)

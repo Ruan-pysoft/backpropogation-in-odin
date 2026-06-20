@@ -66,10 +66,10 @@ Image :: struct($PixelFormat: StbiFormat) {
 	raw_data: StbiImage,
 }
 
-PixelGrey :: struct #packed { grey: u8 }
-PixelGreyAlpha :: struct #packed { grey, alpha: u8 }
-PixelRgb :: struct #packed { r, g, b: u8 }
-PixelRgbAlpha :: struct #packed { r, g, b, alpha: u8 }
+PixelGrey :: [1]u8
+PixelGreyAlpha :: [2]u8
+PixelRgb :: [3]u8
+PixelRgbAlpha :: [4]u8
 
 image_new :: proc($format: StbiFormat, w, h: uint) -> (img: Image(format), err: runtime.Allocator_Error) {
 	raw_data := mem.alloc(int(size_of(u8)*w*h*uint(format)), align_of(u8)) or_return
@@ -165,15 +165,15 @@ image_set_grey :: proc(img: Image(.grey), x, y: uint, to: PixelGrey) {
 	assert(x < img.width)
 	assert(y < img.height)
 
-	img.raw_data[x + y*img.width] = to.grey
+	img.raw_data[x + y*img.width] = to.x
 }
 image_set_grey_alpha :: proc(img: Image(.grey_alpha), x, y: uint, to: PixelGreyAlpha) {
 	assert(img.raw_data != nil)
 	assert(x < img.width)
 	assert(y < img.height)
 
-	img.raw_data[2*(x + y*img.width) + 0] = to.grey
-	img.raw_data[2*(x + y*img.width) + 1] = to.alpha
+	img.raw_data[2*(x + y*img.width) + 0] = to.x
+	img.raw_data[2*(x + y*img.width) + 1] = to.y
 }
 image_set_rgb :: proc(img: Image(.rgb), x, y: uint, to: PixelRgb) {
 	assert(img.raw_data != nil)
@@ -192,7 +192,7 @@ image_set_rgb_alpha :: proc(img: Image(.rgb_alpha), x, y: uint, to: PixelRgbAlph
 	img.raw_data[4*(x + y*img.width) + 0] = to.r
 	img.raw_data[4*(x + y*img.width) + 1] = to.g
 	img.raw_data[4*(x + y*img.width) + 2] = to.b
-	img.raw_data[4*(x + y*img.width) + 3] = to.alpha
+	img.raw_data[4*(x + y*img.width) + 3] = to.a
 }
 
 image_set :: proc{
@@ -217,7 +217,7 @@ image_modify_grey :: proc(img: Image(.grey), cb: PixelGreyCallback) {
 		for x in 0..<img.width {
 			idx := x + y*img.width
 
-			img.raw_data[idx] = cb(x, y, { img.raw_data[idx] }).grey
+			img.raw_data[idx] = cb(x, y, { img.raw_data[idx] }).x
 		}
 	}
 }
@@ -233,8 +233,8 @@ image_modify_grey_alpha :: proc(img: Image(.grey_alpha), cb: PixelGreyAlphaCallb
 				img.raw_data[idx + 1],
 			})
 
-			img.raw_data[idx + 0] = pixel.grey
-			img.raw_data[idx + 1] = pixel.alpha
+			img.raw_data[idx + 0] = pixel.x
+			img.raw_data[idx + 1] = pixel.y
 		}
 	}
 }
@@ -274,7 +274,7 @@ image_modify_rgb_alpha :: proc(img: Image(.rgb_alpha), cb: PixelRgbAlphaCallback
 			img.raw_data[idx + 0] = pixel.r
 			img.raw_data[idx + 1] = pixel.g
 			img.raw_data[idx + 2] = pixel.b
-			img.raw_data[idx + 3] = pixel.alpha
+			img.raw_data[idx + 3] = pixel.a
 		}
 	}
 }
