@@ -60,6 +60,26 @@ train_and_upscale :: proc() {
 		return
 	}
 
+	training_set: [dynamic]TrainingDataPoint(2, 3)
+
+	reserve(&training_set, img.width*img.height)
+
+	for y in 0..<img.height {
+		for x in 0..<img.width {
+			pixel := image_get(img, x, y)
+			if pixel.a != 255 { continue }
+
+			xnorm, ynorm := f32(x) / f32(img.width), f32(y) / f32(img.height)
+
+			rnorm, gnorm, bnorm := f32(pixel.r)/255, f32(pixel.g)/255, f32(pixel.b)/255
+
+			append(&training_set, TrainingDataPoint(2, 3) {
+				X = [?]f32{ xnorm, ynorm },
+				Y = [?]f32{ rnorm, gnorm, bnorm },
+			})
+		}
+	}
+
 	generations :: 10_000
 	print_every :: 250
 
@@ -77,23 +97,12 @@ train_and_upscale :: proc() {
 	{
 		error: f32 = 0
 
-		for y in 0..<img.height {
-			for x in 0..<img.width {
-				pixel := image_get(img, x, y)
-				if pixel.a != 255 { continue }
-
-				xnorm, ynorm := f32(x) / f32(img.width), f32(y) / f32(img.height)
-				simple_net_propogate(network, []f32{ xnorm, ynorm })
-
-				error += simple_net_get_error(network, []f32 {
-					f32(pixel.r)/255,
-					f32(pixel.g)/255,
-					f32(pixel.b)/255,
-				})
-			}
+		for &point in training_set {
+			simple_net_propogate(network, point.X[:])
+			error += simple_net_get_error(network, point.Y[:])
 		}
 
-		error /= f32(img.width*img.height)
+		error /= f32(len(training_set))
 
 		fmt.printf("Before training, avg. error is: {}\n", error)
 	}
@@ -129,39 +138,7 @@ train_and_upscale :: proc() {
 			eta = 1/512.0
 		}
 
-		for y in 0..<img.height {
-			for x in 0..<img.width {
-				pixel := image_get(img, x, y)
-				if pixel.a != 255 { continue }
-
-				xnorm, ynorm := f32(x) / f32(img.width), f32(y) / f32(img.height)
-				simple_net_propogate(network, []f32{ xnorm, ynorm })
-
-				simple_net_backprop(network, []f32 {
-					f32(pixel.r)/255,
-					f32(pixel.g)/255,
-					f32(pixel.b)/255,
-				}, eta)
-			}
-		}
-
-		error: f32 = 0
-		for y in 0..<img.height {
-			for x in 0..<img.width {
-				pixel := image_get(img, x, y)
-				if pixel.a != 255 { continue }
-
-				xnorm, ynorm := f32(x) / f32(img.width), f32(y) / f32(img.height)
-				simple_net_propogate(network, []f32{ xnorm, ynorm })
-
-				error += simple_net_get_error(network, []f32 {
-					f32(pixel.r)/255,
-					f32(pixel.g)/255,
-					f32(pixel.b)/255,
-				})
-			}
-		}
-		error /= f32(img.width*img.height)
+		error := simple_net_backprop(network, training_set[:], eta, true)
 
 		graph_idx := g/graph_bucket_size
 		prev_graph_idx := (g-1)/graph_bucket_size

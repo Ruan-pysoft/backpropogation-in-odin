@@ -141,7 +141,7 @@ simple_net_layer_propogate :: proc(layer, prev_layer: Layer, params: Parameters,
 	assert(prev_layer.size == params.prev_size)
 
 	for i in 0..<params.size {
-		acc: f32 = params.biases[i]
+		acc: FloatType = params.biases[i]
 
 		for j in 0..<params.prev_size {
 			acc += prev_layer.activations[j]*mat_get(params.weights, i, j)
@@ -163,7 +163,7 @@ simple_net_propogate :: proc(net: SimpleNetwork($Layers), input: []FloatType) {
 }
 
 @(private="file")
-simple_net_layer_backprop :: proc(layer, prev_layer: Layer, params: Parameters, output_partials: [dynamic]FloatType, eta: FloatType) -> (input_partials: [dynamic]FloatType) {
+simple_net_layer_backprop_immediate :: proc(layer, prev_layer: Layer, params: Parameters, output_partials: [dynamic]FloatType, eta: FloatType) -> (input_partials: [dynamic]FloatType) {
 	// Also I realise the comments are cryptic,
 	// but I basically just implemented wikipedia's algorithm while I was zonked out on sleep deprivations
 	// so I'm sitting here with a piece of paper deriving how all this works
@@ -248,7 +248,7 @@ simple_net_layer_backprop :: proc(layer, prev_layer: Layer, params: Parameters, 
 
 	return input_partials
 }
-simple_net_backprop :: proc(net: SimpleNetwork($Layers), expected: []FloatType, eta: FloatType) {
+simple_net_backprop_immediate :: proc(net: SimpleNetwork($Layers), expected: []FloatType, eta: FloatType) {
 	assert(uint(len(expected)) == net.layers[Layers-1].size)
 
 	transferred_partials: [dynamic]FloatType
@@ -264,13 +264,152 @@ simple_net_backprop :: proc(net: SimpleNetwork($Layers), expected: []FloatType, 
 	// for i := Layers-1; i > 0; i -= 1 {
 	#unroll for rev_i in 1..<Layers {
 		i := Layers-rev_i
-		partials := simple_net_layer_backprop(net.layers[i], net.layers[i-1], net.params[i-1], transferred_partials, eta)
+		partials := simple_net_layer_backprop_immediate(net.layers[i], net.layers[i-1], net.params[i-1], transferred_partials, eta)
 		delete(transferred_partials)
 		transferred_partials = partials
 	}
 
 	delete(transferred_partials)
 }
+
+SimpleNetworkGradient :: struct($Layers: uint) {
+	gradients: /*#soa*/[Layers-1]Parameters,
+	samples_count: int,
+}
+
+simple_net_grad_new :: proc(for_net: SimpleNetwork($Layers)) -> (grad: SimpleNetworkGradient(Layers), err: runtime.Allocator_Error) {
+	for i in 0..<Layers-1 {
+		grad.gradients[i], err = params_new(for_net.params[i].size, for_net.params[i].prev_size)
+		if err != nil {
+			for j in 0..<i {
+				params_delete(&grad.gradients[j])
+			}
+		}
+	}
+
+	return grad, nil
+}
+simple_net_grad_delete :: proc(grad: ^SimpleNetworkGradient($Layers)) {
+	for i in 0..<Layers-1 {
+		params_delete(&grad.gradients[i])
+	}
+}
+simple_net_grad_compute_actual :: proc(grad: ^SimpleNetworkGradient($Layers)) {
+	assert(grad.samples_count > 0)
+
+	for i in 0..<Layers-1 {
+		for r in 0..<grad.gradients[i].weights.rows {
+			for c in 0..<grad.gradients[i].weights.cols {
+				mat_set(
+					grad.gradients[i].weights, r, c,
+					mat_get(grad.gradients[i].weights, r, c) / FloatType(grad.samples_count),
+				)
+			}
+		}
+		for j in 0..<grad.gradients[i].size {
+			grad.gradients[i].biases[j] /= FloatType(grad.samples_count)
+		}
+	}
+
+	grad.samples_count = -1
+}
+
+@(private="file")
+simple_net_layer_backprop_partial :: proc(layer, prev_layer: Layer, params: Parameters, output_partials: [dynamic]FloatType, eta: FloatType, params_gradient: ^Parameters) -> (input_partials: [dynamic]FloatType) {
+	// see comments in simple_net_layer_backprop_immediate
+
+	assert(layer.size == params.size)
+	assert(prev_layer.size == params.prev_size)
+	assert(uint(len(output_partials)) == layer.size)
+	assert(params_gradient.size == params.size)
+	assert(params_gradient.prev_size == params.prev_size)
+
+	input_partials = make([dynamic]FloatType, prev_layer.size)
+
+	for i in 0..<params.size {
+		// d = (dL/dy)f'(act)
+		delta := output_partials[i] * layer.partials[i]
+
+		for j in 0..<params.prev_size {
+			// (dL/dx)_j = d * w
+			input_partials[j] += delta*mat_get(params.weights, i, j)
+
+			// (dL/dw) = d * x
+			weight_partial := delta*prev_layer.activations[j]
+
+			mat_set(params_gradient.weights, i, j,
+				mat_get(params_gradient.weights, i, j) + eta*weight_partial
+			)
+		}
+
+		// (dL/db) = d
+		params_gradient.biases[i] += eta*delta
+	}
+
+	return input_partials
+}
+simple_net_backprop_partial :: proc(net: SimpleNetwork($Layers), expected: []FloatType, eta: FloatType, gradient: ^SimpleNetworkGradient(Layers)) {
+	assert(uint(len(expected)) == net.layers[Layers-1].size)
+	assert(gradient.samples_count >= 0)
+
+	gradient.samples_count += 1
+
+	transferred_partials: [dynamic]FloatType
+
+	reserve(&transferred_partials, net.layers[Layers-1].size)
+	for i in 0..<net.layers[Layers-1].size {
+		append(&transferred_partials, net.loss_func.dfunc(
+			expected[i],
+			net.layers[Layers-1].activations[i]
+		))
+	}
+
+	// for i := Layers-1; i > 0; i -= 1 {
+	#unroll for rev_i in 1..<Layers {
+		i := Layers-rev_i
+		partials := simple_net_layer_backprop_partial(net.layers[i], net.layers[i-1], net.params[i-1], transferred_partials, eta, &gradient.gradients[i-1])
+		delete(transferred_partials)
+		transferred_partials = partials
+	}
+
+	delete(transferred_partials)
+}
+TrainingDataPoint :: struct($InputSize, $OutputSize: uint) {
+	X: [InputSize]FloatType,
+	Y: [OutputSize]FloatType,
+}
+import "core:fmt"
+simple_net_backprop :: proc(net: SimpleNetwork($Layers), training_set: []TrainingDataPoint($InputSize, $OutputSize), eta: FloatType, $ComputeError: bool) -> (avg_err: FloatType) {
+	assert(InputSize == net.layers[0].size)
+	assert(OutputSize == net.layers[Layers-1].size)
+
+	gradient, err := simple_net_grad_new(net)
+	if err != nil {
+		fmt.panicf("Failed allocating gradient structure during backpropogation: {}", err)
+	}
+	defer simple_net_grad_delete(&gradient)
+
+	for &point in training_set {
+		simple_net_propogate(net, point.X[:])
+		when ComputeError do avg_err += simple_net_get_error(net, point.Y[:])
+		simple_net_backprop_partial(net, point.Y[:], eta, &gradient)
+	}
+
+	when ComputeError do avg_err /= FloatType(len(training_set))
+
+	simple_net_grad_compute_actual(&gradient)
+
+	for i in 0..<Layers-1 {
+		mat_sub(net.params[i].weights, net.params[i].weights, gradient.gradients[i].weights)
+
+		for j in 0..<net.params[i].size {
+			net.params[i].biases[j] -= gradient.gradients[i].biases[j]
+		}
+	}
+
+	return
+}
+
 simple_net_get_error :: proc(net: SimpleNetwork($Layers), expected: []FloatType) -> FloatType {
 	assert(uint(len(expected)) == net.layers[Layers-1].size)
 
