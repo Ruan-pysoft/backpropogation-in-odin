@@ -51,8 +51,8 @@ train_and_upscale :: proc() {
 
 	eta: FloatType = 0.0625
 
-	img, ok = image_load("yogurt.jpeg", .rgb_alpha)
-	//img, ok = image_load("my_eye.png", .rgb_alpha)
+	//img, ok = image_load("yogurt.jpeg", .rgb_alpha)
+	img, ok = image_load("my_eye.png", .rgb_alpha)
 	//img, ok = image_load("grass_block_side.png", .rgb_alpha)
 	defer image_free(&img)
 	if !ok {
@@ -80,8 +80,8 @@ train_and_upscale :: proc() {
 		}
 	}
 
-	generations :: 10_000
-	print_every :: 250
+	generations :: 100_000
+	print_every :: 2500
 
 	graph_height, graph_length :: 1024, 8192
 	graph_bucket_size :: generations/graph_length when generations%graph_length == 0 else 1 + generations/graph_length
@@ -113,29 +113,8 @@ train_and_upscale :: proc() {
 		if g+1 == 1 {
 			eta = 1/16.0
 		}
-		if g+1 == 5_000 {
-			eta = 1/32.0
-		}
-		/*if g+1 == 8_000 {
-			eta = 3/64.0
-		}*/
-		if g+1 == 9_000 {
-			eta -= eta/4
-		}
-		if g+1 == 9_500 {
-			eta = 1/64.0
-		}
-		if g+1 == 10_500 {
-			eta = 1/64.0
-		}
-		if g+1 == 20_000 {
-			eta = 1/128.0
-		}
 		if g+1 == 50_000 {
-			eta = 1/256.0
-		}
-		if g+1 == 75_000 {
-			eta = 1/512.0
+			eta = 1/32.0
 		}
 
 		error := simple_net_backprop(network, training_set[:], eta, true)
