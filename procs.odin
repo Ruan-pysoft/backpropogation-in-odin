@@ -81,7 +81,7 @@ leaky_relu_act: BasicActFunc: {
 
 softplus_act: BasicActFunc: {
 	//proc(x: f32) -> f32 { return math.log(1 + math.exp(x)) },
-	proc(x: f32) -> f32 { return math.LN2 if x == 0 else x/(1 - math.exp(-x/math.LN2)) },
+	proc(x: f32) -> f32 { return x/2 + math.LN2 if -1/1024.0 <= x && x <= 1/1024.0 else x/(1 - math.exp(-x/math.LN2)) },
 	proc(x: f32) -> f32 { return 1/(1 + math.exp(-x)) },
 }
 

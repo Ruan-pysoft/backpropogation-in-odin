@@ -32,11 +32,11 @@ train_and_upscale :: proc() {
 		},
 		act_funcs = [?]BasicActFunc {
 			sin_act,
-			logistic_act,
-			sin_act,
-			logistic_act,
+			tanh_act,
+			adj_sin_act,
 			tanh_act,
 			tanh_act,
+			softplus_act,
 			logistic_act,
 		},
 		loss_func = quad_loss,
@@ -107,17 +107,28 @@ train_and_upscale :: proc() {
 		fmt.printf("Before training, avg. error is: {}\n", error)
 	}
 
+	early_error_avg: f32 = 0
+
 	for g in 0..<generations {
 		prev_eta := eta
 
 		if g+1 == 1 {
-			eta = 1/16.0
-		}
-		if g+1 == 50_000 {
-			eta = 1/32.0
+			eta = 1/8.0
 		}
 
 		error := simple_net_backprop(network, training_set[:], eta, true)
+
+		if g+1 > 2_500 && g+1 <= 5_000 {
+			early_error_avg += error/2_500
+		}
+		if eta > 1/16.0 && g+1 > 5_000 && error <= early_error_avg/6 {
+			fmt.println("Adjusted eta downwards!")
+			eta = 1/16.0
+		}
+		if eta > 1/64.0 && g+1 > 5_000 && error <= early_error_avg/32 {
+			fmt.println("Adjusted eta downwards!")
+			eta = 1/64.0
+		}
 
 		graph_idx := g/graph_bucket_size
 		prev_graph_idx := (g-1)/graph_bucket_size
