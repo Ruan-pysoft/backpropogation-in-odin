@@ -14,6 +14,10 @@ network: SimpleNetwork(NetworkLayers)
 img: Image(.rgb_alpha)
 
 main :: proc() {
+	train_and_upscale()
+}
+
+train_and_upscale :: proc() {
 	ok: bool
 	alloc_err: runtime.Allocator_Error
 
