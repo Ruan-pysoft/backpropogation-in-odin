@@ -7,7 +7,263 @@ import "core:math"
 import "core:math/rand"
 
 main :: proc() {
-	adder_network_sin(2)
+	upscale_texture()
+}
+
+upscale_texture :: proc() {
+	ImageFile :: "my_eye.png"
+	TargetSize :: [?]uint { 64, 64 }
+
+	ok: bool
+	img_grey: Image(.grey)
+	img_grey_alpha: Image(.grey_alpha)
+	img_rgb: Image(.rgb)
+	img_rgb_alpha: Image(.rgb_alpha)
+	format: StbiFormat
+	img_grey, img_grey_alpha, img_rgb, img_rgb_alpha, format, ok = image_load_scuffed(ImageFile)
+	if !ok do fmt.panicf("Failed loading image!")
+	defer {
+		image_free(&img_grey)
+		image_free(&img_grey_alpha)
+		image_free(&img_rgb)
+		image_free(&img_rgb_alpha)
+	}
+
+	fmt.printf("Image format: {}\n", format)
+
+	// NOTE: probably a logic error here; probably even a greyscale, fully opaque png image would have format .rgb_alpha
+
+	switch format {
+	case .grey:
+		upscaled := texture_upscaler(img_grey, TargetSize.x, TargetSize.y)
+		image_write_png(upscaled, "output.png")
+	case .grey_alpha:
+		upscaled := texture_upscaler(img_grey_alpha, TargetSize.x, TargetSize.y)
+		image_write_png(upscaled, "output.png")
+	case .rgb:
+		upscaled := texture_upscaler(img_rgb, TargetSize.x, TargetSize.y)
+		image_write_png(upscaled, "output.png")
+	case .rgb_alpha:
+		upscaled := texture_upscaler(img_rgb_alpha, TargetSize.x, TargetSize.y)
+		image_write_png(upscaled, "output.png")
+	}
+}
+
+texture_upscaler :: proc(texture: Image($format), target_w, target_h: uint) -> Image(format) {
+	IsGrey :: format == .grey || format == .grey_alpha
+	IsAlpha :: format == .grey_alpha || format == .rgb_alpha
+
+	eta: FloatType
+	generations :: 100_000
+	print_every :: 2_500
+
+	net_texture, net_cutout: SimpleNetwork(8)
+	alloc_err: runtime.Allocator_Error
+
+	rand.reset(42)
+
+	when IsGrey {
+		OutputSize :: 1
+	} else {
+		OutputSize :: 3
+	}
+
+	training_set: [dynamic]TrainingDataPoint(2, OutputSize)
+	reserve(&training_set, texture.width*texture.height)
+	when IsAlpha {
+		training_set_cutout := make([]TrainingDataPoint(2, 1), texture.width*texture.height)
+	}
+
+	for y in 0..<texture.height {
+		for x in 0..<texture.width {
+			pixel := image_get(texture, x, y)
+			// TODO: figure out how this should be best calculated
+			xnorm, ynorm := f32(x) / f32(texture.width-1), f32(y) / f32(texture.height-1)
+
+			when IsAlpha {
+				idx := y*texture.width + x
+
+				when IsGrey {
+					training_set_cutout[idx] = {
+						[?]f32{ xnorm, ynorm },
+						[?]f32{ f32(pixel[1]) / 255 },
+					}
+
+					if pixel[1] == 0 do continue
+				} else {
+					training_set_cutout[idx] = {
+						[?]f32{ xnorm, ynorm },
+						[?]f32{ f32(pixel.a) / 255 },
+					}
+
+					if pixel.a == 0 do continue
+				}
+			}
+
+			when IsGrey {
+				append(&training_set, TrainingDataPoint(2, OutputSize) {
+					[?]f32{ xnorm, ynorm },
+					[?]f32{ f32(pixel[0])/255, },
+				})
+			} else {
+				append(&training_set, TrainingDataPoint(2, OutputSize) {
+					[?]f32{ xnorm, ynorm },
+					[?]f32{
+						f32(pixel.r)/255,
+						f32(pixel.g)/255,
+						f32(pixel.b)/255,
+					},
+				})
+			}
+		}
+	}
+
+	net_texture, alloc_err = simple_net_new(
+		Layers = 8,
+		topology = [?]uint {
+			2,
+			8, 8, 16, 32, 8, 4,
+			OutputSize,
+		},
+		act_funcs = [?]BasicActFunc {
+			sin_act,
+			tanh_act,
+			adj_sin_act,
+			tanh_act,
+			tanh_act,
+			softplus_act,
+			logistic_act,
+		},
+		loss_func = quad_loss,
+	)
+	if alloc_err != nil {
+		fmt.panicf("Error allocating neural network: {}\n", alloc_err)
+	}
+	defer simple_net_delete(&net_texture)
+
+	simple_net_init_random(net_texture)
+
+	when format == .grey_alpha || format == .rgb_alpha {
+		net_cutout, alloc_err = simple_net_new(
+			Layers = 8,
+			topology = [?]uint {
+				2,
+				8, 8, 16, 32, 8, 4,
+				1,
+			},
+			act_funcs = [?]BasicActFunc {
+				sin_act,
+				tanh_act,
+				adj_sin_act,
+				tanh_act,
+				tanh_act,
+				softplus_act,
+				logistic_act,
+			},
+			loss_func = quad_loss,
+		)
+		if alloc_err != nil {
+			fmt.panicf("Error allocating neural network: {}\n", alloc_err)
+		}
+		defer simple_net_delete(&net_cutout)
+
+		simple_net_init_random(net_cutout)
+	}
+
+	early_error_avg: f32 = 0
+
+	for g in 0..<generations {
+		if g+1 == 1 {
+			eta = 1/8.0
+		}
+
+		error := simple_net_backprop(net_texture, training_set[:], eta, true)
+
+		if g+1 > 2_500 && g+1 <= 5_000 {
+			early_error_avg += error/2_500
+		}
+		if eta > 1/16.0 && g+1 > 5_000 && error <= early_error_avg/6 {
+			fmt.println("Adjusted eta downwards!")
+			eta = 1/16.0
+		}
+		if eta > 1/64.0 && g+1 > 5_000 && error <= early_error_avg/32 {
+			fmt.println("Adjusted eta downwards!")
+			eta = 1/64.0
+		}
+
+		if (g+1) % print_every == 0 {
+			fmt.printf("After {} generations of training, avg error is: {}\n", g+1, error)
+		}
+	}
+
+	when IsAlpha {
+		fmt.println("Training alpha cutout...")
+
+		early_error_avg = 0
+
+		for g in 0..<generations/10 {
+			if g+1 == 1 {
+				eta = 1/8.0
+			}
+
+			error := simple_net_backprop(net_cutout, training_set_cutout[:], eta, true)
+
+			if g+1 > 250 && g+1 <= 500 {
+				early_error_avg += error/250
+			}
+			if eta > 1/16.0 && g+1 > 500 && error <= early_error_avg/6 {
+				fmt.println("Adjusted eta downwards!")
+				eta = 1/16.0
+			}
+			if eta > 1/64.0 && g+1 > 500 && error <= early_error_avg/32 {
+				fmt.println("Adjusted eta downwards!")
+				eta = 1/64.0
+			}
+
+			if (g+1) % print_every == 0 {
+				fmt.printf("After {} generations of training, avg error is: {}\n", g+1, error)
+			}
+		}
+	}
+
+	upscaled_img, err := image_new(format, target_w, target_h)
+	assert(err == nil)
+
+	for y in 0..<upscaled_img.height {
+		for x in 0..<upscaled_img.width {
+			// TODO: figure out how this should be best calculated
+			xnorm, ynorm := f32(x) / f32(upscaled_img.width-1), f32(y) / f32(upscaled_img.height-1)
+			
+			simple_net_propogate(net_texture, []f32{ xnorm, ynorm })
+			when IsAlpha {
+				simple_net_propogate(net_cutout, []f32{ xnorm, ynorm })
+			}
+
+			// TODO: pixels will never have a value of 255; can we correct for this?
+			// I mean, theoretically I can do *256?
+			when IsGrey {
+				grey := u8(net_texture.layers[7].activations[0]*255)
+			} else {
+				r := u8(net_texture.layers[7].activations[0]*255)
+				g := u8(net_texture.layers[7].activations[1]*255)
+				b := u8(net_texture.layers[7].activations[2]*255)
+			}
+			alpha := u8(net_cutout.layers[7].activations[0]*256)
+
+			when format == .grey {
+				pixel := PixelGrey { grey }
+			} else when format == .grey_alpha {
+				pixel := PixelGreyAlpha { grey, alpha }
+			} else when format == .rgb {
+				pixel := PixelRgb { r, g, b }
+			} else {
+				pixel := PixelRgbAlpha { r, g, b, alpha }
+			}
+			image_set(upscaled_img, x, y, pixel)
+		}
+	}
+
+	return upscaled_img
 }
 
 adder_network_tanh :: proc($Bits: uint)
@@ -535,7 +791,7 @@ train_and_upscale :: proc() {
 		xnorm, ynorm := f32(x) / f32(img.width), f32(y) / f32(img.height)
 		simple_net_propogate(network, []f32{ xnorm, ynorm })
 		//fmt.printf("output for {},{} = {}\n", x, y, network.layer_output.nodes)
-		return {
+return {
 			u8(network.layers[NetworkLayers-1].activations[0]*255),
 			u8(network.layers[NetworkLayers-1].activations[1]*255),
 			u8(network.layers[NetworkLayers-1].activations[2]*255),

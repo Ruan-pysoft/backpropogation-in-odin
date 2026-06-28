@@ -99,6 +99,56 @@ image_load :: proc(file: string, $format: StbiFormat) -> (img: Image(format), ok
 	}, true
 }
 
+image_load_scuffed :: proc(file: string) -> (
+	img_grey: Image(.grey),
+	img_grey_alpha: Image(.grey_alpha),
+	img_rgb: Image(.rgb),
+	img_rgb_alpha: Image(.rgb_alpha),
+	format: StbiFormat,
+	ok: bool,
+) {
+	w, h, c: c.int = 0, 0, 0
+	img_raw := stbi_load(
+		strings.clone_to_cstring(file, context.temp_allocator),
+		&w, &h, &c, nil
+	)
+	if (img_raw == nil) {
+		return {}, {}, {}, {}, nil, false
+	}
+	format = StbiFormat(c)
+	switch format {
+	case .grey:
+		return {
+			width = uint(w),
+			height = uint(h),
+			allocation_source = .stbi,
+			raw_data = img_raw,
+		}, {}, {}, {}, format, true
+	case .grey_alpha:
+		return {}, {
+			width = uint(w),
+			height = uint(h),
+			allocation_source = .stbi,
+			raw_data = img_raw,
+		}, {}, {}, format, true
+	case .rgb:
+		return {}, {}, {
+			width = uint(w),
+			height = uint(h),
+			allocation_source = .stbi,
+			raw_data = img_raw,
+		}, {}, format, true
+	case .rgb_alpha:
+		return {}, {}, {}, {
+			width = uint(w),
+			height = uint(h),
+			allocation_source = .stbi,
+			raw_data = img_raw,
+		}, format, true
+	}
+	fmt.panicf("Unrecognised image format: {}", format)
+}
+
 image_free :: proc(img: ^Image($format)) {
 	assert(img != nil)
 	if img.raw_data != nil {
