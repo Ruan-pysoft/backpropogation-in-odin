@@ -47,8 +47,8 @@ main :: proc() {
 
 	eta: FloatType = 0.0625
 
-	//img, ok = image_load("GoblinFace_small.jpg", .rgb)
-	img, ok = image_load("test.png", .rgb_alpha)
+	img, ok = image_load("yogurt.jpeg", .rgb_alpha)
+	//img, ok = image_load("my_eye.png", .rgb_alpha)
 	//img, ok = image_load("grass_block_side.png", .rgb_alpha)
 	defer image_free(&img)
 	if !ok {
@@ -58,6 +58,16 @@ main :: proc() {
 
 	generations :: 10_000
 	print_every :: 250
+
+	graph_height, graph_length :: 1024, 8192
+	graph_bucket_size :: generations/graph_length when generations%graph_length == 0 else 1 + generations/graph_length
+	error_max_buckets := [graph_length]FloatType{}
+	error_min_buckets := [graph_length]FloatType{}
+	error_max := f32(0)
+	eta_max_buckets := [graph_length]FloatType{}
+	eta_min_buckets := [graph_length]FloatType{}
+	eta_changed_buckets := [graph_length]bool{}
+	eta_max := f32(0)
 
 	fmt.println("Starting network training!")
 	{
@@ -84,12 +94,9 @@ main :: proc() {
 		fmt.printf("Before training, avg. error is: {}\n", error)
 	}
 
-	error_history := new([generations]f32)
-	eta_history := new([generations]f32)
-	error_max: f32 = 0
-	eta_max: f32 = 0
-
 	for g in 0..<generations {
+		prev_eta := eta
+
 		if g+1 == 1 {
 			eta = 1/16.0
 		}
@@ -118,9 +125,6 @@ main :: proc() {
 			eta = 1/512.0
 		}
 
-		eta_history[g] = eta
-		eta_max = math.max(eta_max, eta)
-
 		for y in 0..<img.height {
 			for x in 0..<img.width {
 				pixel := image_get(img, x, y)
@@ -138,7 +142,6 @@ main :: proc() {
 		}
 
 		error: f32 = 0
-
 		for y in 0..<img.height {
 			for x in 0..<img.width {
 				pixel := image_get(img, x, y)
@@ -154,11 +157,41 @@ main :: proc() {
 				})
 			}
 		}
-
 		error /= f32(img.width*img.height)
 
-		error_history[g] = error
+		graph_idx := g/graph_bucket_size
+		prev_graph_idx := (g-1)/graph_bucket_size
+
+		if graph_idx != prev_graph_idx {
+			error_max_buckets[graph_idx] = error
+			error_min_buckets[graph_idx] = error
+
+			eta_max_buckets[graph_idx] = eta
+			eta_min_buckets[graph_idx] = eta
+		} else {
+			error_max_buckets[graph_idx] = max(
+				error_max_buckets[graph_idx],
+				error,
+			)
+			error_min_buckets[graph_idx] = min(
+				error_min_buckets[graph_idx],
+				error,
+			)
+
+			eta_max_buckets[graph_idx] = max(
+				eta_max_buckets[graph_idx],
+				eta,
+			)
+			eta_min_buckets[graph_idx] = min(
+				eta_min_buckets[graph_idx],
+				eta,
+			)
+		}
+
+		eta_changed_buckets[graph_idx] = eta != prev_eta
+
 		error_max = max(error_max, error)
+		eta_max = max(eta_max, eta)
 
 		if (g+1) % print_every == 0 {
 			fmt.printf("After {} generations of training, avg error is: {}\n", g+1, error)
@@ -245,44 +278,39 @@ main :: proc() {
 
 	stbi_write_png("extended.png", extended_total_size, extended_total_size, 3, extended_data, 3*extended_total_size)
 
-	/*
-	error_graph_height :: 1024
-	error_graph_data := new([error_graph_height*generations*3]u8)
+	graph, graph_err := image_new(.rgb, graph_length, graph_height)
+	assert(graph_err == nil)
 
 	line_extend :: 3
 
-	for y in 0..<error_graph_height {
-		curr_height := error_graph_height - y - 1
-		for x in 0..<generations {
-			idx := (y*generations + x)*3
+	for y in 0..<graph_height {
+		curr_height := graph_height - y - 1
+		for x in 0..<graph_length {
+			error_min_height := int(f32(graph_height)*error_min_buckets[x]/error_max)
+			error_max_height := int(f32(graph_height)*error_max_buckets[x]/error_max)
 
-			error := error_history[x]
-			error_height := int(f32(error_graph_height)*error/error_max)
-			error_min_height := error_height - line_extend
-			error_max_height := error_height + line_extend
-
-			eta := eta_history[x]
-			eta_height := int(f32(error_graph_height)*eta/eta_max)
+			eta_avg := (eta_min_buckets[x]+eta_max_buckets[x])/2
+			eta_height := int(f32(graph_height)*eta_avg/eta_max)
 			eta_min_height := eta_height - line_extend
 			eta_max_height := eta_height + line_extend
-			eta_changed := x != 0 && eta != eta_history[x-1]
 
 			if error_min_height <= curr_height && curr_height <= error_max_height {
-				error_graph_data[idx + 0] = 0
-				error_graph_data[idx + 1] = 0
-				error_graph_data[idx + 2] = 0
+				image_set(graph, uint(x), uint(y), PixelRgb { 0, 0, 0 })
 			} else if eta_min_height <= curr_height && curr_height <= eta_max_height {
-				error_graph_data[idx + 0] = 0 if !eta_changed else 255
-				error_graph_data[idx + 1] = 0
-				error_graph_data[idx + 2] = 255
+				image_set(graph, uint(x), uint(y), PixelRgb {
+					0 if !eta_changed_buckets[x] else 255,
+					0,
+					255,
+				})
 			} else {
-				error_graph_data[idx + 0] = 255
-				error_graph_data[idx + 1] = 255 if !eta_changed else 0
-				error_graph_data[idx + 2] = 255 if !eta_changed else 0
+				image_set(graph, uint(x), uint(y), PixelRgb {
+					255,
+					255 if !eta_changed_buckets[x] else 0,
+					255,
+				})
 			}
 		}
 	}
 
-	stbi_write_png("error_graph.png", generations, error_graph_height, 3, error_graph_data, generations*3)
-	*/
+	image_write_png(graph, "error_graph.png")
 }
