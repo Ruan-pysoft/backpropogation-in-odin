@@ -6,16 +6,372 @@ import "core:fmt"
 import "core:math"
 import "core:math/rand"
 
+main :: proc() {
+	adder_network_sin(2)
+}
+
+adder_network_tanh :: proc($Bits: uint)
+where Bits <= 8
+{
+	network: SimpleNetwork(4)
+	ok: bool
+	alloc_err: runtime.Allocator_Error
+
+	network, alloc_err = simple_net_new(
+		Layers = 4,
+		topology = [?]uint { Bits*2, Bits*4, Bits*2, Bits+1 },
+		act_funcs = [?]BasicActFunc {
+			tanh_act,
+			tanh_act,
+			logistic_act,
+		},
+		loss_func = quad_loss,
+	)
+	if alloc_err != nil {
+		fmt.printf("Error allocating neural network: {}\n", alloc_err)
+		return
+	}
+	defer simple_net_delete(&network)
+
+	eta: FloatType: 1/16.0
+
+	Supremum :: 1<<Bits
+	training_set := make([]TrainingDataPoint(Bits*2, Bits+1), Supremum*Supremum)
+	for a in 0..<Supremum {
+		for b in 0..<Supremum {
+			c := a+b
+
+			for bit in 0..<Bits {
+				bit_a := (a>>bit)&1
+				bit_b := (b>>bit)&1
+				bit_c := (c>>bit)&1
+
+				training_set[a*Supremum + b].X[bit] = f32(bit_a)
+				training_set[a*Supremum + b].X[bit + Bits] = f32(bit_b)
+				training_set[a*Supremum + b].Y[bit] = f32(bit_c)
+			}
+
+			bit_c := (c>>Bits)&1
+			training_set[a*Supremum + b].Y[Bits] = f32(bit_c)
+		}
+	}
+
+	generations :: 100_000
+	print_every :: 10_000
+	min_err: f32 = 0
+	max_err: f32 = 0
+	avg_err: f32 = 0
+
+	rand.reset(42)
+
+	simple_net_init_random(network)
+
+	for g in 0..<generations {
+		error := simple_net_backprop(network, training_set, eta, true)
+
+		switch (g+1)%print_every {
+		case 0:
+			avg_err /= f32(print_every)
+			fmt.printf("Error after gen {}: {}-{} ~{}\n", g+1, min_err, max_err, avg_err)
+		case 1:
+			min_err = error
+			max_err = error
+			avg_err = error
+		case:
+			min_err = min(min_err, error)
+			max_err = max(max_err, error)
+			avg_err += error
+		}
+	}
+
+	fmt.println("Results:")
+	for &point in training_set {
+		simple_net_propogate(network, point.X[:])
+		error := simple_net_get_error(network, point.Y[:])
+		output := network.layers[3].activations[:Bits]
+		carry := network.layers[3].activations[Bits]
+		fmt.printf("{} + {} = {} {} (err: {})\n", point.X[:Bits], point.X[Bits:], output, carry, error)
+	}
+}
+
+adder_network_sin :: proc($Bits: uint)
+where Bits <= 8
+{
+	network: SimpleNetwork(4)
+	ok: bool
+	alloc_err: runtime.Allocator_Error
+
+	network, alloc_err = simple_net_new(
+		Layers = 4,
+		topology = [?]uint { Bits*2, Bits*2, Bits, Bits+1 },
+		act_funcs = [?]BasicActFunc {
+			sin_act,
+			sin_act,
+			logistic_act,
+		},
+		loss_func = quad_loss,
+	)
+	if alloc_err != nil {
+		fmt.printf("Error allocating neural network: {}\n", alloc_err)
+		return
+	}
+	defer simple_net_delete(&network)
+
+	eta: FloatType: 1/16.0
+
+	Supremum :: 1<<Bits
+	training_set := make([]TrainingDataPoint(Bits*2, Bits+1), Supremum*Supremum)
+	for a in 0..<Supremum {
+		for b in 0..<Supremum {
+			c := a+b
+
+			for bit in 0..<Bits {
+				bit_a := (a>>bit)&1
+				bit_b := (b>>bit)&1
+				bit_c := (c>>bit)&1
+
+				training_set[a*Supremum + b].X[bit] = f32(bit_a)
+				training_set[a*Supremum + b].X[bit + Bits] = f32(bit_b)
+				training_set[a*Supremum + b].Y[bit] = f32(bit_c)
+			}
+
+			bit_c := (c>>Bits)&1
+			training_set[a*Supremum + b].Y[Bits] = f32(bit_c)
+		}
+	}
+
+	generations :: 100_000
+	print_every :: 10_000
+	min_err: f32 = 0
+	max_err: f32 = 0
+	avg_err: f32 = 0
+
+	rand.reset(42)
+
+	simple_net_init_random(network)
+
+	for g in 0..<generations {
+		error := simple_net_backprop(network, training_set, eta, true)
+
+		switch (g+1)%print_every {
+		case 0:
+			avg_err /= f32(print_every)
+			fmt.printf("Error after gen {}: {}-{} ~{}\n", g+1, min_err, max_err, avg_err)
+		case 1:
+			min_err = error
+			max_err = error
+			avg_err = error
+		case:
+			min_err = min(min_err, error)
+			max_err = max(max_err, error)
+			avg_err += error
+		}
+	}
+
+	fmt.println("Results:")
+	for &point in training_set {
+		simple_net_propogate(network, point.X[:])
+		error := simple_net_get_error(network, point.Y[:])
+		output := network.layers[3].activations[:Bits]
+		carry := network.layers[3].activations[Bits]
+		fmt.printf("{} + {} = {} {} (err: {})\n", point.X[:Bits], point.X[Bits:], output, carry, error)
+	}
+}
+
+xor_network :: proc() {
+	network: SimpleNetwork(3)
+	ok: bool
+	alloc_err: runtime.Allocator_Error
+
+	{
+		fmt.println("Traditional network with sigmoid activation and two hidden neurons:")
+		network, alloc_err = simple_net_new(
+			Layers = 3,
+			topology = [?]uint { 2, 2, 1 },
+			act_funcs = [?]BasicActFunc {
+				logistic_act,
+				logistic_act,
+			},
+			loss_func = quad_loss,
+		)
+		if alloc_err != nil {
+			fmt.printf("Error allocating neural network: {}\n", alloc_err)
+			return
+		}
+		defer simple_net_delete(&network)
+
+		xor_network_train(network)
+	}
+	{
+		fmt.println("Traditional network with tanh activation and two hidden neurons:")
+		network, alloc_err = simple_net_new(
+			Layers = 3,
+			topology = [?]uint { 2, 2, 1 },
+			act_funcs = [?]BasicActFunc {
+				tanh_act,
+				logistic_act,
+			},
+			loss_func = quad_loss,
+		)
+		if alloc_err != nil {
+			fmt.printf("Error allocating neural network: {}\n", alloc_err)
+			return
+		}
+		defer simple_net_delete(&network)
+
+		xor_network_train(network)
+	}
+	{
+		fmt.println("Traditional network with relu activation and two hidden neurons:")
+		network, alloc_err = simple_net_new(
+			Layers = 3,
+			topology = [?]uint { 2, 2, 1 },
+			act_funcs = [?]BasicActFunc {
+				relu_act,
+				logistic_act,
+			},
+			loss_func = quad_loss,
+		)
+		if alloc_err != nil {
+			fmt.printf("Error allocating neural network: {}\n", alloc_err)
+			return
+		}
+		defer simple_net_delete(&network)
+
+		xor_network_train(network)
+	}
+	{
+		fmt.println("Traditional network with softplus activation and two hidden neurons:")
+		network, alloc_err = simple_net_new(
+			Layers = 3,
+			topology = [?]uint { 2, 2, 1 },
+			act_funcs = [?]BasicActFunc {
+				softplus_act,
+				logistic_act,
+			},
+			loss_func = quad_loss,
+		)
+		if alloc_err != nil {
+			fmt.printf("Error allocating neural network: {}\n", alloc_err)
+			return
+		}
+		defer simple_net_delete(&network)
+
+		xor_network_train(network)
+	}
+	{
+		fmt.println("Traditional network with softplus activation and one hidden neuron:")
+		network, alloc_err = simple_net_new(
+			Layers = 3,
+			topology = [?]uint { 2, 1, 1 },
+			act_funcs = [?]BasicActFunc {
+				softplus_act,
+				logistic_act,
+			},
+			loss_func = quad_loss,
+		)
+		if alloc_err != nil {
+			fmt.printf("Error allocating neural network: {}\n", alloc_err)
+			return
+		}
+		defer simple_net_delete(&network)
+
+		xor_network_train(network)
+	}
+	{
+		fmt.println("Traditional network with sin activation and two hidden neurons:")
+		network, alloc_err = simple_net_new(
+			Layers = 3,
+			topology = [?]uint { 2, 2, 1 },
+			act_funcs = [?]BasicActFunc {
+				sin_act,
+				logistic_act,
+			},
+			loss_func = quad_loss,
+		)
+		if alloc_err != nil {
+			fmt.printf("Error allocating neural network: {}\n", alloc_err)
+			return
+		}
+		defer simple_net_delete(&network)
+
+		xor_network_train(network)
+	}
+	{
+		fmt.println("Traditional network with sin activation and one hidden neuron:")
+		network, alloc_err = simple_net_new(
+			Layers = 3,
+			topology = [?]uint { 2, 1, 1 },
+			act_funcs = [?]BasicActFunc {
+				sin_act,
+				logistic_act,
+			},
+			loss_func = quad_loss,
+		)
+		if alloc_err != nil {
+			fmt.printf("Error allocating neural network: {}\n", alloc_err)
+			return
+		}
+		defer simple_net_delete(&network)
+
+		xor_network_train(network)
+	}
+}
+
+xor_network_train :: proc(net: SimpleNetwork(3)) {
+	eta: FloatType: 1/16.0
+
+	training_set := []TrainingDataPoint(2, 1) {
+		{ [2]f32{ 0, 0 }, [1]f32{ 0 } },
+		{ [2]f32{ 0, 1 }, [1]f32{ 1 } },
+		{ [2]f32{ 1, 0 }, [1]f32{ 1 } },
+		{ [2]f32{ 1, 1 }, [1]f32{ 0 } },
+	}
+
+	generations :: 100_000
+	print_every :: 10_000
+	min_err: f32 = 0
+	max_err: f32 = 0
+	avg_err: f32 = 0
+
+	rand.reset(42)
+
+	simple_net_init_random(net)
+
+	for g in 0..<generations {
+		error := simple_net_backprop(net, training_set, eta, true)
+
+		switch (g+1)%print_every {
+		case 0:
+			avg_err /= f32(print_every)
+			fmt.printf("Error after gen {}: {}-{} ~{}\n", g+1, min_err, max_err, avg_err)
+		case 1:
+			min_err = error
+			max_err = error
+			avg_err = error
+		case:
+			min_err = min(min_err, error)
+			max_err = max(max_err, error)
+			avg_err += error
+		}
+	}
+
+	fmt.println("Results:")
+	for &point in training_set {
+		simple_net_propogate(net, point.X[:])
+		error := simple_net_get_error(net, point.Y[:])
+		fmt.printf("  {} {} -> {} (err: {})\n", point.X[0], point.X[1], net.layers[2].activations[0], error)
+	}
+
+	fmt.println()
+}
+
 input_size :: 2
 output_size :: 3
 
 NetworkLayers :: 8
 network: SimpleNetwork(NetworkLayers)
 img: Image(.rgb_alpha)
-
-main :: proc() {
-	train_and_upscale()
-}
 
 train_and_upscale :: proc() {
 	ok: bool
@@ -27,7 +383,7 @@ train_and_upscale :: proc() {
 		Layers = 8,
 		topology = [?]uint {
 			input_size,
-			8, 4, 16, 32, 8, 4,
+			8, 8, 16, 32, 8, 4,
 			output_size,
 		},
 		act_funcs = [?]BasicActFunc {
