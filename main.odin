@@ -95,7 +95,7 @@ texture_upscaler :: proc(texture: Image($format), target_w, target_h: uint) -> I
 				when IsGrey {
 					training_set_cutout[idx] = {
 						normed_xy,
-						[?]f32{ f32(pixel[1]) / 255 },
+						[?]f32{ f32(pixel[1]) / 256 },
 					}
 
 					if pixel[1] == 0 {
@@ -105,7 +105,7 @@ texture_upscaler :: proc(texture: Image($format), target_w, target_h: uint) -> I
 				} else {
 					training_set_cutout[idx] = {
 						normed_xy,
-						[?]f32{ f32(pixel.a) / 255 },
+						[?]f32{ f32(pixel.a) / 256 },
 					}
 
 					if pixel.a == 0 {
@@ -118,15 +118,15 @@ texture_upscaler :: proc(texture: Image($format), target_w, target_h: uint) -> I
 			when IsGrey {
 				append(&training_set, TrainingDataPoint(2, OutputSize) {
 					normed_xy,
-					[?]f32{ f32(pixel[0])/255, },
+					[?]f32{ f32(pixel[0])/256, },
 				})
 			} else {
 				append(&training_set, TrainingDataPoint(2, OutputSize) {
 					normed_xy,
 					[?]f32{
-						f32(pixel.r)/255,
-						f32(pixel.g)/255,
-						f32(pixel.b)/255,
+						f32(pixel.r)/256,
+						f32(pixel.g)/256,
+						f32(pixel.b)/256,
 					},
 				})
 			}
