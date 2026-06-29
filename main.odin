@@ -7,7 +7,62 @@ import "core:math"
 import "core:math/rand"
 
 main :: proc() {
-	upscale_texture()
+	Prefix :: "/home/ruan/Documents/texturepack/"
+	BlockPrefix :: Prefix + "mysimpleresourcepack/assets/minecraft/textures/block/"
+	AiBlockPrefix :: Prefix + "ai_upscaled_pack/assets/minecraft/textures/block/"
+
+	fmt.println("=== Birch Door ===")
+	//upscale_texture(Prefix + "birch_door.png", Prefix + "birch_door_big.png", { 64, 128 })
+	fmt.println("=== Birch Leaves ===")
+	upscale_texture(BlockPrefix + "birch_leaves.png", AiBlockPrefix + "birch_leaves.png", { 64, 64 })
+	fmt.println("=== Birch Log ===")
+	upscale_texture(BlockPrefix + "birch_log.png", AiBlockPrefix + "birch_log.png", { 64, 64 })
+	fmt.println("=== Birch Log Top ===")
+	upscale_texture(BlockPrefix + "birch_log_top.png", AiBlockPrefix + "birch_log_top.png", { 64, 64 })
+	fmt.println("=== Birch Log Planks ===")
+	upscale_texture(BlockPrefix + "birch_planks.png", AiBlockPrefix + "birch_planks.png", { 64, 64 })
+	fmt.println("=== Birch Sapling ===")
+	upscale_texture(BlockPrefix + "birch_sapling.png", AiBlockPrefix + "birch_sapling.png", { 64, 64 })
+	fmt.println("=== Birch Trapdoor ===")
+	upscale_texture(BlockPrefix + "birch_trapdoor.png", AiBlockPrefix + "birch_trapdoor.png", { 64, 64 })
+	fmt.println("=== Brown Mushroom Block ===")
+	upscale_texture(BlockPrefix + "brown_mushroom_block.png", AiBlockPrefix + "brown_mushroom_block.png", { 64, 64 })
+	fmt.println("=== Brown Mushroom ===")
+	upscale_texture(BlockPrefix + "brown_mushroom.png", AiBlockPrefix + "brown_mushroom.png", { 64, 64 })
+	fmt.println("=== Coarse Dirt ===")
+	upscale_texture(BlockPrefix + "coarse_dirt.png", AiBlockPrefix + "coarse_dirt.png", { 64, 64 })
+	fmt.println("=== Dirt Path Side ===")
+	upscale_texture(BlockPrefix + "dirt_path_side.png", AiBlockPrefix + "dirt_path_side.png", { 64, 64 })
+	fmt.println("=== Dirt ===")
+	upscale_texture(BlockPrefix + "dirt.png", AiBlockPrefix + "dirt.png", { 64, 64 })
+	fmt.println("=== Grass Block Side Overlay ===")
+	upscale_texture(BlockPrefix + "grass_block_side_overlay.png", AiBlockPrefix + "grass_block_side_overlay.png", { 64, 64 })
+	fmt.println("=== Grass Block Side ===")
+	upscale_texture(BlockPrefix + "grass_block_side.png", AiBlockPrefix + "grass_block_side.png", { 64, 64 })
+	fmt.println("=== Grass Block Top ===")
+	upscale_texture(BlockPrefix + "grass_block_top.png", AiBlockPrefix + "grass_block_top.png", { 64, 64 })
+	fmt.println("=== Mushroom Block Inside ===")
+	upscale_texture(BlockPrefix + "mushroom_block_inside.png", AiBlockPrefix + "mushroom_block_inside.png", { 64, 64 })
+	fmt.println("=== Mushroom Stem ===")
+	upscale_texture(BlockPrefix + "mushroom_stem.png", AiBlockPrefix + "mushroom_stem.png", { 64, 64 })
+	fmt.println("=== Mycelium Side ===")
+	upscale_texture(BlockPrefix + "mycelium_side.png", AiBlockPrefix + "mycelium_side.png", { 64, 64 })
+	fmt.println("=== Mycelium Top ===")
+	upscale_texture(BlockPrefix + "mycelium_top.png", AiBlockPrefix + "mycelium_top.png", { 64, 64 })
+	fmt.println("=== Podzol Side ===")
+	upscale_texture(BlockPrefix + "podzol_side.png", AiBlockPrefix + "podzol_side.png", { 64, 64 })
+	fmt.println("=== Podzol Top ===")
+	upscale_texture(BlockPrefix + "podzol_top.png", AiBlockPrefix + "podzol_top.png", { 64, 64 })
+	fmt.println("=== Red Mushroom Block ===")
+	upscale_texture(BlockPrefix + "red_mushroom_block.png", AiBlockPrefix + "red_mushroom_block.png", { 64, 64 })
+	fmt.println("=== Red Mushroom ===")
+	upscale_texture(BlockPrefix + "red_mushroom.png", AiBlockPrefix + "red_mushroom.png", { 64, 64 })
+	fmt.println("=== Rooted Dirt ===")
+	upscale_texture(BlockPrefix + "rooted_dirt.png", AiBlockPrefix + "rooted_dirt.png", { 64, 64 })
+	fmt.println("=== Stripped Birch Log ===")
+	upscale_texture(BlockPrefix + "stripped_birch_log.png", AiBlockPrefix + "stripped_birch_log.png", { 64, 64 })
+	fmt.println("=== Stripped Birch Log Top ===")
+	upscale_texture(BlockPrefix + "stripped_birch_log_top.png", AiBlockPrefix + "stripped_birch_log_top.png", { 64, 64 })
 }
 
 normalize_coords :: proc(coords, size: [2]uint) -> [2]f32 {
@@ -19,18 +74,16 @@ denormalize_coords :: proc(coords: [2]f32, size: [2]uint) -> [2]uint {
 	return cast([2]uint)( (coords - 1/(2*fsize)) * fsize )
 }
 
-upscale_texture :: proc() {
-	ImageFile :: "/home/ruan/Documents/texturepack/mysimpleresourcepack/assets/minecraft/textures/block/brown_mushroom.png"
-	TargetSize :: [?]uint { 64, 64 }
-
+upscale_texture :: proc(image: string, output_to := "output.png", target_size := [2]uint{ 64, 64 }) {
+	fmt.printf("{} -> {} ({})\n", image, output_to, target_size)
 	ok: bool
 	img_grey: Image(.grey)
 	img_grey_alpha: Image(.grey_alpha)
 	img_rgb: Image(.rgb)
 	img_rgb_alpha: Image(.rgb_alpha)
 	format: StbiFormat
-	img_grey, img_grey_alpha, img_rgb, img_rgb_alpha, format, ok = image_load_scuffed(ImageFile)
-	if !ok do fmt.panicf("Failed loading image!")
+	img_grey, img_grey_alpha, img_rgb, img_rgb_alpha, format, ok = image_load_scuffed(image)
+	if !ok do fmt.panicf("Failed loading image! {}", stbi_failure_reason())
 	defer {
 		image_free(&img_grey)
 		image_free(&img_grey_alpha)
@@ -44,17 +97,17 @@ upscale_texture :: proc() {
 
 	switch format {
 	case .grey:
-		upscaled := texture_upscaler(img_grey, TargetSize.x, TargetSize.y)
-		image_write_png(upscaled, "output.png")
+		upscaled := texture_upscaler(img_grey, target_size.x, target_size.y)
+		image_write_png(upscaled, output_to)
 	case .grey_alpha:
-		upscaled := texture_upscaler(img_grey_alpha, TargetSize.x, TargetSize.y)
-		image_write_png(upscaled, "output.png")
+		upscaled := texture_upscaler(img_grey_alpha, target_size.x, target_size.y)
+		image_write_png(upscaled, output_to)
 	case .rgb:
-		upscaled := texture_upscaler(img_rgb, TargetSize.x, TargetSize.y)
-		image_write_png(upscaled, "output.png")
+		upscaled := texture_upscaler(img_rgb, target_size.x, target_size.y)
+		image_write_png(upscaled, output_to)
 	case .rgb_alpha:
-		upscaled := texture_upscaler(img_rgb_alpha, TargetSize.x, TargetSize.y)
-		image_write_png(upscaled, "output.png")
+		upscaled := texture_upscaler(img_rgb_alpha, target_size.x, target_size.y)
+		image_write_png(upscaled, output_to)
 	}
 }
 
