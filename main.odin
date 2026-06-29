@@ -10,8 +10,17 @@ main :: proc() {
 	upscale_texture()
 }
 
+normalize_coords :: proc(coords, size: [2]uint) -> [2]f32 {
+	fsize := cast([2]f32)size
+	return (cast([2]f32)coords)/fsize + 1/(2*fsize)
+}
+denormalize_coords :: proc(coords: [2]f32, size: [2]uint) -> [2]uint {
+	fsize := cast([2]f32)size
+	return cast([2]uint)( (coords - 1/(2*fsize)) * fsize )
+}
+
 upscale_texture :: proc() {
-	ImageFile :: "my_eye.png"
+	ImageFile :: "/home/ruan/Documents/texturepack/mysimpleresourcepack/assets/minecraft/textures/block/brown_mushroom.png"
 	TargetSize :: [?]uint { 64, 64 }
 
 	ok: bool
@@ -52,6 +61,7 @@ upscale_texture :: proc() {
 texture_upscaler :: proc(texture: Image($format), target_w, target_h: uint) -> Image(format) {
 	IsGrey :: format == .grey || format == .grey_alpha
 	IsAlpha :: format == .grey_alpha || format == .rgb_alpha
+	skip_cutout := true
 
 	eta: FloatType
 	generations :: 100_000
@@ -77,37 +87,42 @@ texture_upscaler :: proc(texture: Image($format), target_w, target_h: uint) -> I
 	for y in 0..<texture.height {
 		for x in 0..<texture.width {
 			pixel := image_get(texture, x, y)
-			// TODO: figure out how this should be best calculated
-			xnorm, ynorm := f32(x) / f32(texture.width-1), f32(y) / f32(texture.height-1)
+			normed_xy := normalize_coords([2]uint{ x, y }, [2]uint{ texture.width, texture.height })
 
 			when IsAlpha {
 				idx := y*texture.width + x
 
 				when IsGrey {
 					training_set_cutout[idx] = {
-						[?]f32{ xnorm, ynorm },
+						normed_xy,
 						[?]f32{ f32(pixel[1]) / 255 },
 					}
 
-					if pixel[1] == 0 do continue
+					if pixel[1] == 0 {
+						skip_cutout = false
+						continue
+					}
 				} else {
 					training_set_cutout[idx] = {
-						[?]f32{ xnorm, ynorm },
+						normed_xy,
 						[?]f32{ f32(pixel.a) / 255 },
 					}
 
-					if pixel.a == 0 do continue
+					if pixel.a == 0 {
+						skip_cutout = false
+						continue
+					}
 				}
 			}
 
 			when IsGrey {
 				append(&training_set, TrainingDataPoint(2, OutputSize) {
-					[?]f32{ xnorm, ynorm },
+					normed_xy,
 					[?]f32{ f32(pixel[0])/255, },
 				})
 			} else {
 				append(&training_set, TrainingDataPoint(2, OutputSize) {
-					[?]f32{ xnorm, ynorm },
+					normed_xy,
 					[?]f32{
 						f32(pixel.r)/255,
 						f32(pixel.g)/255,
@@ -197,31 +212,33 @@ texture_upscaler :: proc(texture: Image($format), target_w, target_h: uint) -> I
 	}
 
 	when IsAlpha {
-		fmt.println("Training alpha cutout...")
+		if !skip_cutout {
+			fmt.println("Training alpha cutout...")
 
-		early_error_avg = 0
+			early_error_avg = 0
 
-		for g in 0..<generations/10 {
-			if g+1 == 1 {
-				eta = 1/8.0
-			}
+			for g in 0..<generations/10 {
+				if g+1 == 1 {
+					eta = 1/8.0
+				}
 
-			error := simple_net_backprop(net_cutout, training_set_cutout[:], eta, true)
+				error := simple_net_backprop(net_cutout, training_set_cutout[:], eta, true)
 
-			if g+1 > 250 && g+1 <= 500 {
-				early_error_avg += error/250
-			}
-			if eta > 1/16.0 && g+1 > 500 && error <= early_error_avg/6 {
-				fmt.println("Adjusted eta downwards!")
-				eta = 1/16.0
-			}
-			if eta > 1/64.0 && g+1 > 500 && error <= early_error_avg/32 {
-				fmt.println("Adjusted eta downwards!")
-				eta = 1/64.0
-			}
+				if g+1 > 250 && g+1 <= 500 {
+					early_error_avg += error/250
+				}
+				if eta > 1/16.0 && g+1 > 500 && error <= early_error_avg/6 {
+					fmt.println("Adjusted eta downwards!")
+					eta = 1/16.0
+				}
+				if eta > 1/64.0 && g+1 > 500 && error <= early_error_avg/32 {
+					fmt.println("Adjusted eta downwards!")
+					eta = 1/64.0
+				}
 
-			if (g+1) % print_every == 0 {
-				fmt.printf("After {} generations of training, avg error is: {}\n", g+1, error)
+				if (g+1) % (print_every/10) == 0 {
+					fmt.printf("After {} generations of training, avg error is: {}\n", g+1, error)
+				}
 			}
 		}
 	}
@@ -231,24 +248,21 @@ texture_upscaler :: proc(texture: Image($format), target_w, target_h: uint) -> I
 
 	for y in 0..<upscaled_img.height {
 		for x in 0..<upscaled_img.width {
-			// TODO: figure out how this should be best calculated
-			xnorm, ynorm := f32(x) / f32(upscaled_img.width-1), f32(y) / f32(upscaled_img.height-1)
+			normed_xy := normalize_coords([2]uint{ x, y }, [2]uint{ upscaled_img.width, upscaled_img.height })
 			
-			simple_net_propogate(net_texture, []f32{ xnorm, ynorm })
+			simple_net_propogate(net_texture, normed_xy[:])
 			when IsAlpha {
-				simple_net_propogate(net_cutout, []f32{ xnorm, ynorm })
+				simple_net_propogate(net_cutout, normed_xy[:])
 			}
 
-			// TODO: pixels will never have a value of 255; can we correct for this?
-			// I mean, theoretically I can do *256?
 			when IsGrey {
-				grey := u8(net_texture.layers[7].activations[0]*255)
+				grey := u8(net_texture.layers[7].activations[0]*256)
 			} else {
-				r := u8(net_texture.layers[7].activations[0]*255)
-				g := u8(net_texture.layers[7].activations[1]*255)
-				b := u8(net_texture.layers[7].activations[2]*255)
+				r := u8(net_texture.layers[7].activations[0]*256)
+				g := u8(net_texture.layers[7].activations[1]*256)
+				b := u8(net_texture.layers[7].activations[2]*256)
 			}
-			alpha := u8(net_cutout.layers[7].activations[0]*256)
+			alpha := u8(net_cutout.layers[7].activations[0]*256) if !skip_cutout else 255
 
 			when format == .grey {
 				pixel := PixelGrey { grey }
