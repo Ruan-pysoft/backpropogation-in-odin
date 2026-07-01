@@ -133,26 +133,36 @@ texture_upscaler :: proc(texture: Image($format), target_w, target_h: uint, wrap
 		OutputSize :: 3
 	}
 
-	training_set: [dynamic]TrainingDataPoint(4, OutputSize)
-	reserve(&training_set, texture.width*texture.height)
+	input_size: uint = 5 if wraparound else 2
+
+	training_set: [dynamic]TrainingDataPoint(2, OutputSize)
+	training_set_wa: [dynamic]TrainingDataPoint(5, OutputSize)
+	if !wraparound do reserve(&training_set, texture.width*texture.height)
+	else do reserve(&training_set_wa, texture.width*texture.height)
 	when IsAlpha {
-		training_set_cutout := make([]TrainingDataPoint(4, 1), texture.width*texture.height)
+		training_set_cutout := make([]TrainingDataPoint(2, 1), texture.width*texture.height) if !wraparound else nil
+		training_set_cutout_wa := make([]TrainingDataPoint(5, 1), texture.width*texture.height) if wraparound else nil
 	}
 
 	for y in 0..<texture.height {
 		for x in 0..<texture.width {
 			pixel := image_get(texture, x, y)
 			normed_xy := normalize_coords([2]uint{ x, y }, [2]uint{ texture.width, texture.height })
-			inputs := [4]f32{
+			inputs := [5]f32{
 				math.sin(math.TAU*normed_xy.x), math.cos(math.TAU*normed_xy.x),
 				math.sin(math.TAU*normed_xy.y), math.cos(math.TAU*normed_xy.y),
+				min(math.abs(normed_xy.x - 0.5), math.abs(normed_xy.y - 0.5)),
 			}
 
 			when IsAlpha {
 				idx := y*texture.width + x
 
 				when IsGrey {
-					training_set_cutout[idx] = {
+					if !wraparound do training_set_cutout[idx] = {
+						normed_xy,
+						[?]f32{ f32(pixel[1]) / 256 },
+					}
+					else do training_set_cutout_wa[idx] = {
 						inputs,
 						[?]f32{ f32(pixel[1]) / 256 },
 					}
@@ -162,7 +172,11 @@ texture_upscaler :: proc(texture: Image($format), target_w, target_h: uint, wrap
 						continue
 					}
 				} else {
-					training_set_cutout[idx] = {
+					if !wraparound do training_set_cutout[idx] = {
+						normed_xy,
+						[?]f32{ f32(pixel.a) / 256 },
+					}
+					else do training_set_cutout_wa[idx] = {
 						inputs,
 						[?]f32{ f32(pixel.a) / 256 },
 					}
@@ -175,12 +189,24 @@ texture_upscaler :: proc(texture: Image($format), target_w, target_h: uint, wrap
 			}
 
 			when IsGrey {
-				append(&training_set, TrainingDataPoint(4, OutputSize) {
+				if !wraparound do append(&training_set, TrainingDataPoint(2, OutputSize) {
+					normed_xy,
+					[?]f32{ f32(pixel[0])/256, },
+				})
+				else do append(&training_set_wa, TrainingDataPoint(5, OutputSize) {
 					inputs,
 					[?]f32{ f32(pixel[0])/256, },
 				})
 			} else {
-				append(&training_set, TrainingDataPoint(4, OutputSize) {
+				if !wraparound do append(&training_set, TrainingDataPoint(2, OutputSize) {
+					normed_xy,
+					[?]f32{
+						f32(pixel.r)/256,
+						f32(pixel.g)/256,
+						f32(pixel.b)/256,
+					},
+				})
+				else do append(&training_set_wa, TrainingDataPoint(5, OutputSize) {
 					inputs,
 					[?]f32{
 						f32(pixel.r)/256,
@@ -195,12 +221,12 @@ texture_upscaler :: proc(texture: Image($format), target_w, target_h: uint, wrap
 	net_texture, alloc_err = simple_net_new(
 		Layers = 8,
 		topology = [?]uint {
-			4,
+			input_size,
 			8, 8, 16, 32, 8, 4,
 			OutputSize,
 		},
 		act_funcs = [?]BasicActFunc {
-			sin_act,
+			sin_act if !wraparound else softplus_act,
 			tanh_act,
 			adj_sin_act,
 			tanh_act,
@@ -208,7 +234,7 @@ texture_upscaler :: proc(texture: Image($format), target_w, target_h: uint, wrap
 			softplus_act,
 			logistic_act,
 		},
-		loss_func = quad_loss,
+		loss_func = mad_loss,
 	)
 	if alloc_err != nil {
 		fmt.panicf("Error allocating neural network: {}\n", alloc_err)
@@ -221,12 +247,12 @@ texture_upscaler :: proc(texture: Image($format), target_w, target_h: uint, wrap
 		net_cutout, alloc_err = simple_net_new(
 			Layers = 8,
 			topology = [?]uint {
-				4,
+				input_size,
 				8, 8, 16, 32, 8, 4,
 				1,
 			},
 			act_funcs = [?]BasicActFunc {
-				sin_act,
+				sin_act if !wraparound else softplus_act,
 				tanh_act,
 				adj_sin_act,
 				tanh_act,
@@ -248,23 +274,28 @@ texture_upscaler :: proc(texture: Image($format), target_w, target_h: uint, wrap
 
 	for g in 0..<generations {
 		if g+1 == 1 {
-			eta = 1/8.0
+			eta = 1/32.0
 		}
 
 		error: f32
 
-		error = simple_net_backprop(net_texture, training_set[:], eta, true)
+		if !wraparound do error = simple_net_backprop(net_texture, training_set[:], eta, true)
+		else do error = simple_net_backprop(net_texture, training_set_wa[:], eta, true)
 
 		if g+1 > 2_500 && g+1 <= 5_000 {
 			early_error_avg += error/2_500
 		}
-		if eta > 1/16.0 && g+1 > 5_000 && error <= early_error_avg/6 {
+		if eta > 1/16.0 && g+1 > 5_000 && error <= early_error_avg/2.5 {
 			fmt.println("Adjusted eta downwards!")
-			eta = 1/16.0
+			eta = 1/256.0
 		}
-		if eta > 1/64.0 && g+1 > 5_000 && error <= early_error_avg/32 {
+		if eta > 1/64.0 && g+1 > 5_000 && error <= early_error_avg/6 {
 			fmt.println("Adjusted eta downwards!")
-			eta = 1/64.0
+			eta = 1/1024.0
+		}
+		if g+1 > 5_000 && error <= 1/1024. {
+			fmt.printf("Reached error of {} on generation {}, finishing training early!\n", error, g+1)
+			break
 		}
 
 		if (g+1) % print_every == 0 {
@@ -285,7 +316,8 @@ texture_upscaler :: proc(texture: Image($format), target_w, target_h: uint, wrap
 
 				error: f32
 
-				error = simple_net_backprop(net_cutout, training_set_cutout[:], eta, true)
+				if !wraparound do error = simple_net_backprop(net_cutout, training_set_cutout[:], eta, true)
+				else do error = simple_net_backprop(net_cutout, training_set_cutout_wa[:], eta, true)
 
 				if g+1 > 250 && g+1 <= 500 {
 					early_error_avg += error/250
@@ -297,6 +329,10 @@ texture_upscaler :: proc(texture: Image($format), target_w, target_h: uint, wrap
 				if eta > 1/64.0 && g+1 > 500 && error <= early_error_avg/32 {
 					fmt.println("Adjusted eta downwards!")
 					eta = 1/64.0
+				}
+				if g+1 > 500 && error <= 1/65536. {
+					fmt.printf("Reached error of {} on generation {}, finishing training early!\n", error, g+1)
+					break
 				}
 
 				if (g+1) % (print_every/10) == 0 {
@@ -312,14 +348,17 @@ texture_upscaler :: proc(texture: Image($format), target_w, target_h: uint, wrap
 	for y in 0..<upscaled_img.height {
 		for x in 0..<upscaled_img.width {
 			normed_xy := normalize_coords([2]uint{ x, y }, [2]uint{ upscaled_img.width, upscaled_img.height })
-			inputs := [4]f32{
+			inputs := [5]f32{
 				math.sin(math.TAU*normed_xy.x), math.cos(math.TAU*normed_xy.x),
 				math.sin(math.TAU*normed_xy.y), math.cos(math.TAU*normed_xy.y),
+				min(math.abs(normed_xy.x - 0.5), math.abs(normed_xy.y - 0.5)),
 			}
 			
-			simple_net_propogate(net_texture, inputs[:])
+			if !wraparound do simple_net_propogate(net_texture, normed_xy[:])
+			else do simple_net_propogate(net_texture, inputs[:])
 			when IsAlpha {
-				simple_net_propogate(net_cutout, inputs[:])
+				if !wraparound do simple_net_propogate(net_cutout, normed_xy[:])
+				else do simple_net_propogate(net_cutout, inputs[:])
 			}
 
 			when IsGrey {
