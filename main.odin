@@ -19,7 +19,7 @@ main :: proc() {
 	upscale_texture(BlockPrefix + "birch_log.png", AiBlockPrefix + "birch_log.png", { 64, 64 })
 	fmt.println("=== Birch Log Top ===")
 	upscale_texture(BlockPrefix + "birch_log_top.png", AiBlockPrefix + "birch_log_top.png", { 64, 64 })
-	fmt.println("=== Birch Log Planks ===")
+	fmt.println("=== Birch Planks ===")
 	upscale_texture(BlockPrefix + "birch_planks.png", AiBlockPrefix + "birch_planks.png", { 64, 64 })
 	fmt.println("=== Birch Sapling ===")
 	upscale_texture(BlockPrefix + "birch_sapling.png", AiBlockPrefix + "birch_sapling.png", { 64, 64 }, wraparound = false)
@@ -33,6 +33,8 @@ main :: proc() {
 	upscale_texture(BlockPrefix + "coarse_dirt.png", AiBlockPrefix + "coarse_dirt.png", { 64, 64 })
 	fmt.println("=== Dirt Path Side ===")
 	upscale_texture(BlockPrefix + "dirt_path_side.png", AiBlockPrefix + "dirt_path_side.png", { 64, 64 }, wraparound = false)
+	fmt.println("=== Dirt Path Top ===")
+	upscale_texture(BlockPrefix + "dirt_path_top.png", AiBlockPrefix + "dirt_path_top.png", { 64, 64 })
 	fmt.println("=== Dirt ===")
 	upscale_texture(BlockPrefix + "dirt.png", AiBlockPrefix + "dirt.png", { 64, 64 })
 	fmt.println("=== Grass Block Side Overlay ===")
@@ -131,23 +133,27 @@ texture_upscaler :: proc(texture: Image($format), target_w, target_h: uint, wrap
 		OutputSize :: 3
 	}
 
-	training_set: [dynamic]TrainingDataPoint(2, OutputSize)
+	training_set: [dynamic]TrainingDataPoint(4, OutputSize)
 	reserve(&training_set, texture.width*texture.height)
 	when IsAlpha {
-		training_set_cutout := make([]TrainingDataPoint(2, 1), texture.width*texture.height)
+		training_set_cutout := make([]TrainingDataPoint(4, 1), texture.width*texture.height)
 	}
 
 	for y in 0..<texture.height {
 		for x in 0..<texture.width {
 			pixel := image_get(texture, x, y)
 			normed_xy := normalize_coords([2]uint{ x, y }, [2]uint{ texture.width, texture.height })
+			inputs := [4]f32{
+				math.sin(math.TAU*normed_xy.x), math.cos(math.TAU*normed_xy.x),
+				math.sin(math.TAU*normed_xy.y), math.cos(math.TAU*normed_xy.y),
+			}
 
 			when IsAlpha {
 				idx := y*texture.width + x
 
 				when IsGrey {
 					training_set_cutout[idx] = {
-						normed_xy,
+						inputs,
 						[?]f32{ f32(pixel[1]) / 256 },
 					}
 
@@ -157,7 +163,7 @@ texture_upscaler :: proc(texture: Image($format), target_w, target_h: uint, wrap
 					}
 				} else {
 					training_set_cutout[idx] = {
-						normed_xy,
+						inputs,
 						[?]f32{ f32(pixel.a) / 256 },
 					}
 
@@ -169,13 +175,13 @@ texture_upscaler :: proc(texture: Image($format), target_w, target_h: uint, wrap
 			}
 
 			when IsGrey {
-				append(&training_set, TrainingDataPoint(2, OutputSize) {
-					normed_xy,
+				append(&training_set, TrainingDataPoint(4, OutputSize) {
+					inputs,
 					[?]f32{ f32(pixel[0])/256, },
 				})
 			} else {
-				append(&training_set, TrainingDataPoint(2, OutputSize) {
-					normed_xy,
+				append(&training_set, TrainingDataPoint(4, OutputSize) {
+					inputs,
 					[?]f32{
 						f32(pixel.r)/256,
 						f32(pixel.g)/256,
@@ -186,104 +192,10 @@ texture_upscaler :: proc(texture: Image($format), target_w, target_h: uint, wrap
 		}
 	}
 
-	wraparound_points: [dynamic]TrainingDataPoint(2, 2)
-	wraparound_data: [dynamic]TrainingDataPoint(2, OutputSize)
-	skip_wa_gens: int = 0
-	if wraparound {
-		size := 2*(target_w+1 + target_h+1) + 2*(texture.width+1 + texture.height+1)
-
-		reserve(&wraparound_points, size)
-		wraparound_data = make([dynamic]TrainingDataPoint(2, OutputSize), size)
-
-		append(&wraparound_points, TrainingDataPoint(2, 2) {
-			[?]f32{ 0, 0 },
-			[?]f32{ 1, 1 },
-		})
-		append(&wraparound_points, TrainingDataPoint(2, 2) {
-			[?]f32{ 0, 1 },
-			[?]f32{ 1, 0 },
-		})
-		append(&wraparound_points, TrainingDataPoint(2, 2) {
-			[?]f32{ 1, 0 },
-			[?]f32{ 0, 1 },
-		})
-		append(&wraparound_points, TrainingDataPoint(2, 2) {
-			[?]f32{ 1, 1 },
-			[?]f32{ 0, 0 },
-		})
-
-		boundary_size := [2]int{ int(texture.width), int(texture.height) }
-
-		append(&wraparound_points, TrainingDataPoint(2, 2) {
-			normalize_coords([2]int{ -1, -1 }, boundary_size),
-			normalize_coords([2]int{ int(texture.width-1), int(texture.height-1) }, boundary_size),
-		})
-		append(&wraparound_points, TrainingDataPoint(2, 2) {
-			normalize_coords([2]int{ -1, int(texture.height-1) }, boundary_size),
-			normalize_coords([2]int{ int(texture.width-1), -1 }, boundary_size),
-		})
-		append(&wraparound_points, TrainingDataPoint(2, 2) {
-			normalize_coords([2]int{ int(texture.width-1), -1 }, boundary_size),
-			normalize_coords([2]int{ -1, int(texture.height-1) }, boundary_size),
-		})
-		append(&wraparound_points, TrainingDataPoint(2, 2) {
-			normalize_coords([2]int{ int(texture.width-1), int(texture.height-1) }, boundary_size),
-			normalize_coords([2]int{ -1, -1 }, boundary_size),
-		})
-
-		for x in 1..=target_w-1 {
-			norm_x := normalize_coords([2]int{ int(x), 0 }, [2]int{ int(target_w), 1 }).x
-			append(&wraparound_points, TrainingDataPoint(2, 2) {
-				[?]f32{ norm_x, 0 },
-				[?]f32{ norm_x, 1 },
-			})
-			append(&wraparound_points, TrainingDataPoint(2, 2) {
-				[?]f32{ norm_x, 1 },
-				[?]f32{ norm_x, 0 },
-			})
-		}
-		for y in 1..=target_h-1 {
-			norm_y := normalize_coords([2]int{ 0, int(y) }, [2]int{ 1, int(target_h) }).y
-			append(&wraparound_points, TrainingDataPoint(2, 2) {
-				[?]f32{ 0, norm_y },
-				[?]f32{ 1, norm_y },
-			})
-			append(&wraparound_points, TrainingDataPoint(2, 2) {
-				[?]f32{ 1, norm_y },
-				[?]f32{ 0, norm_y },
-			})
-		}
-
-		for x in 0..<texture.width {
-			normed_above := normalize_coords([2]int{ int(x), int(boundary_size.y+1) }, boundary_size)
-			normed_below := normalize_coords([2]int{ int(x), -1 }, boundary_size)
-			append(&wraparound_points, TrainingDataPoint(2, 2) {
-				normed_above,
-				[2]f32{ normed_above.x, normed_above.y - 1 }
-			})
-			append(&wraparound_points, TrainingDataPoint(2, 2) {
-				normed_below,
-				[2]f32{ normed_below.x, normed_below.y + 1 }
-			})
-		}
-		for y in 0..<texture.width {
-			normed_right := normalize_coords([2]int{ int(boundary_size.x+1), int(y) }, boundary_size)
-			normed_left := normalize_coords([2]int{ -1, int(y) }, boundary_size)
-			append(&wraparound_points, TrainingDataPoint(2, 2) {
-				normed_right,
-				[2]f32{ normed_right.x - 1, normed_right.y }
-			})
-			append(&wraparound_points, TrainingDataPoint(2, 2) {
-				normed_left,
-				[2]f32{ normed_left.x + 1, normed_left.y }
-			})
-		}
-	}
-
 	net_texture, alloc_err = simple_net_new(
 		Layers = 8,
 		topology = [?]uint {
-			2,
+			4,
 			8, 8, 16, 32, 8, 4,
 			OutputSize,
 		},
@@ -309,7 +221,7 @@ texture_upscaler :: proc(texture: Image($format), target_w, target_h: uint, wrap
 		net_cutout, alloc_err = simple_net_new(
 			Layers = 8,
 			topology = [?]uint {
-				2,
+				4,
 				8, 8, 16, 32, 8, 4,
 				1,
 			},
@@ -358,27 +270,6 @@ texture_upscaler :: proc(texture: Image($format), target_w, target_h: uint, wrap
 		if (g+1) % print_every == 0 {
 			fmt.printf("After {} generations of training, avg error is: {}\n", g+1, error)
 		}
-
-		if (g+1) % 10 == 0 && wraparound && skip_wa_gens <= 0 {
-			for &point, i in wraparound_points {
-				simple_net_propogate(net_texture, point.Y[:])
-				Y := net_cutout.layers[7].activations[:net_cutout.layers[7].size]
-				wraparound_data[i].X = point.X
-				#unroll for j in 0..<OutputSize {
-					wraparound_data[i].Y[j] = Y[j]
-				}
-			}
-
-			error = simple_net_backprop(net_texture, wraparound_data[:], eta, true)
-			if error < 1/1024. {
-				fmt.printf("WA err = {}; skipping...\n", error)
-				skip_wa_gens = 1024
-			}
-
-			if (g+1) % print_every == 0 {
-				fmt.printf("Wraparound error: {}\n", error)
-			}
-		} else if skip_wa_gens > 0 do skip_wa_gens -= 1
 	}
 
 	when IsAlpha {
@@ -411,27 +302,6 @@ texture_upscaler :: proc(texture: Image($format), target_w, target_h: uint, wrap
 				if (g+1) % (print_every/10) == 0 {
 					fmt.printf("After {} generations of training, avg error is: {}\n", g+1, error)
 				}
-
-				if (g+1) % 10 == 0 && wraparound && skip_wa_gens <= 0 {
-					for &point, i in wraparound_points {
-						simple_net_propogate(net_cutout, point.Y[:])
-						Y := net_cutout.layers[7].activations[:net_cutout.layers[7].size]
-						wraparound_data[i].X = point.X
-						#unroll for j in 0..<OutputSize {
-							wraparound_data[i].Y[j] = Y[j]
-						}
-					}
-
-					error = simple_net_backprop(net_cutout, wraparound_data[:], eta, true)
-					if error < 1/1024. {
-						fmt.printf("WA err = {}; skipping...\n", error)
-						skip_wa_gens = 128
-					}
-
-					if (g+1) % (print_every/10) == 0 {
-						fmt.printf("Wraparound error: {}\n", error)
-					}
-				} else if skip_wa_gens > 0 do skip_wa_gens -= 1
 			}
 		}
 	}
@@ -442,10 +312,14 @@ texture_upscaler :: proc(texture: Image($format), target_w, target_h: uint, wrap
 	for y in 0..<upscaled_img.height {
 		for x in 0..<upscaled_img.width {
 			normed_xy := normalize_coords([2]uint{ x, y }, [2]uint{ upscaled_img.width, upscaled_img.height })
+			inputs := [4]f32{
+				math.sin(math.TAU*normed_xy.x), math.cos(math.TAU*normed_xy.x),
+				math.sin(math.TAU*normed_xy.y), math.cos(math.TAU*normed_xy.y),
+			}
 			
-			simple_net_propogate(net_texture, normed_xy[:])
+			simple_net_propogate(net_texture, inputs[:])
 			when IsAlpha {
-				simple_net_propogate(net_cutout, normed_xy[:])
+				simple_net_propogate(net_cutout, inputs[:])
 			}
 
 			when IsGrey {
