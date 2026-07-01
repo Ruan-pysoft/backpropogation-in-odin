@@ -12,7 +12,7 @@ main :: proc() {
 	AiBlockPrefix :: Prefix + "ai_upscaled_pack/assets/minecraft/textures/block/"
 
 	fmt.println("=== Birch Door ===")
-	//upscale_texture(Prefix + "birch_door.png", Prefix + "birch_door_big.png", { 64, 128 })
+	upscale_texture(Prefix + "birch_door.png", Prefix + "birch_door_big.png", { 64, 128 }, wraparound = false)
 	fmt.println("=== Birch Leaves ===")
 	upscale_texture(BlockPrefix + "birch_leaves.png", AiBlockPrefix + "birch_leaves.png", { 64, 64 })
 	fmt.println("=== Birch Log ===")
@@ -22,23 +22,23 @@ main :: proc() {
 	fmt.println("=== Birch Log Planks ===")
 	upscale_texture(BlockPrefix + "birch_planks.png", AiBlockPrefix + "birch_planks.png", { 64, 64 })
 	fmt.println("=== Birch Sapling ===")
-	upscale_texture(BlockPrefix + "birch_sapling.png", AiBlockPrefix + "birch_sapling.png", { 64, 64 })
+	upscale_texture(BlockPrefix + "birch_sapling.png", AiBlockPrefix + "birch_sapling.png", { 64, 64 }, wraparound = false)
 	fmt.println("=== Birch Trapdoor ===")
-	upscale_texture(BlockPrefix + "birch_trapdoor.png", AiBlockPrefix + "birch_trapdoor.png", { 64, 64 })
+	upscale_texture(BlockPrefix + "birch_trapdoor.png", AiBlockPrefix + "birch_trapdoor.png", { 64, 64 }, wraparound = false)
 	fmt.println("=== Brown Mushroom Block ===")
 	upscale_texture(BlockPrefix + "brown_mushroom_block.png", AiBlockPrefix + "brown_mushroom_block.png", { 64, 64 })
 	fmt.println("=== Brown Mushroom ===")
-	upscale_texture(BlockPrefix + "brown_mushroom.png", AiBlockPrefix + "brown_mushroom.png", { 64, 64 })
+	upscale_texture(BlockPrefix + "brown_mushroom.png", AiBlockPrefix + "brown_mushroom.png", { 64, 64 }, wraparound = false)
 	fmt.println("=== Coarse Dirt ===")
 	upscale_texture(BlockPrefix + "coarse_dirt.png", AiBlockPrefix + "coarse_dirt.png", { 64, 64 })
 	fmt.println("=== Dirt Path Side ===")
-	upscale_texture(BlockPrefix + "dirt_path_side.png", AiBlockPrefix + "dirt_path_side.png", { 64, 64 })
+	upscale_texture(BlockPrefix + "dirt_path_side.png", AiBlockPrefix + "dirt_path_side.png", { 64, 64 }, wraparound = false)
 	fmt.println("=== Dirt ===")
 	upscale_texture(BlockPrefix + "dirt.png", AiBlockPrefix + "dirt.png", { 64, 64 })
 	fmt.println("=== Grass Block Side Overlay ===")
-	upscale_texture(BlockPrefix + "grass_block_side_overlay.png", AiBlockPrefix + "grass_block_side_overlay.png", { 64, 64 })
+	upscale_texture(BlockPrefix + "grass_block_side_overlay.png", AiBlockPrefix + "grass_block_side_overlay.png", { 64, 64 }, wraparound = false)
 	fmt.println("=== Grass Block Side ===")
-	upscale_texture(BlockPrefix + "grass_block_side.png", AiBlockPrefix + "grass_block_side.png", { 64, 64 })
+	upscale_texture(BlockPrefix + "grass_block_side.png", AiBlockPrefix + "grass_block_side.png", { 64, 64 }, wraparound = false)
 	fmt.println("=== Grass Block Top ===")
 	upscale_texture(BlockPrefix + "grass_block_top.png", AiBlockPrefix + "grass_block_top.png", { 64, 64 })
 	fmt.println("=== Mushroom Block Inside ===")
@@ -50,13 +50,13 @@ main :: proc() {
 	fmt.println("=== Mycelium Top ===")
 	upscale_texture(BlockPrefix + "mycelium_top.png", AiBlockPrefix + "mycelium_top.png", { 64, 64 })
 	fmt.println("=== Podzol Side ===")
-	upscale_texture(BlockPrefix + "podzol_side.png", AiBlockPrefix + "podzol_side.png", { 64, 64 })
+	upscale_texture(BlockPrefix + "podzol_side.png", AiBlockPrefix + "podzol_side.png", { 64, 64 }, wraparound = false)
 	fmt.println("=== Podzol Top ===")
 	upscale_texture(BlockPrefix + "podzol_top.png", AiBlockPrefix + "podzol_top.png", { 64, 64 })
 	fmt.println("=== Red Mushroom Block ===")
 	upscale_texture(BlockPrefix + "red_mushroom_block.png", AiBlockPrefix + "red_mushroom_block.png", { 64, 64 })
 	fmt.println("=== Red Mushroom ===")
-	upscale_texture(BlockPrefix + "red_mushroom.png", AiBlockPrefix + "red_mushroom.png", { 64, 64 })
+	upscale_texture(BlockPrefix + "red_mushroom.png", AiBlockPrefix + "red_mushroom.png", { 64, 64 }, wraparound = false)
 	fmt.println("=== Rooted Dirt ===")
 	upscale_texture(BlockPrefix + "rooted_dirt.png", AiBlockPrefix + "rooted_dirt.png", { 64, 64 })
 	fmt.println("=== Stripped Birch Log ===")
@@ -65,16 +65,16 @@ main :: proc() {
 	upscale_texture(BlockPrefix + "stripped_birch_log_top.png", AiBlockPrefix + "stripped_birch_log_top.png", { 64, 64 })
 }
 
-normalize_coords :: proc(coords, size: [2]uint) -> [2]f32 {
+normalize_coords :: proc(coords, size: [2]$T) -> [2]f32 {
 	fsize := cast([2]f32)size
 	return (cast([2]f32)coords)/fsize + 1/(2*fsize)
 }
-denormalize_coords :: proc(coords: [2]f32, size: [2]uint) -> [2]uint {
+denormalize_coords :: proc(coords: [2]f32, size: [2]$T) -> [2]T {
 	fsize := cast([2]f32)size
-	return cast([2]uint)( (coords - 1/(2*fsize)) * fsize )
+	return cast([2]T)( (coords - 1/(2*fsize)) * fsize )
 }
 
-upscale_texture :: proc(image: string, output_to := "output.png", target_size := [2]uint{ 64, 64 }) {
+upscale_texture :: proc(image: string, output_to := "output.png", target_size := [2]uint{ 64, 64 }, wraparound := true) {
 	fmt.printf("{} -> {} ({})\n", image, output_to, target_size)
 	ok: bool
 	img_grey: Image(.grey)
@@ -97,21 +97,21 @@ upscale_texture :: proc(image: string, output_to := "output.png", target_size :=
 
 	switch format {
 	case .grey:
-		upscaled := texture_upscaler(img_grey, target_size.x, target_size.y)
+		upscaled := texture_upscaler(img_grey, target_size.x, target_size.y, wraparound)
 		image_write_png(upscaled, output_to)
 	case .grey_alpha:
-		upscaled := texture_upscaler(img_grey_alpha, target_size.x, target_size.y)
+		upscaled := texture_upscaler(img_grey_alpha, target_size.x, target_size.y, wraparound)
 		image_write_png(upscaled, output_to)
 	case .rgb:
-		upscaled := texture_upscaler(img_rgb, target_size.x, target_size.y)
+		upscaled := texture_upscaler(img_rgb, target_size.x, target_size.y, wraparound)
 		image_write_png(upscaled, output_to)
 	case .rgb_alpha:
-		upscaled := texture_upscaler(img_rgb_alpha, target_size.x, target_size.y)
+		upscaled := texture_upscaler(img_rgb_alpha, target_size.x, target_size.y, wraparound)
 		image_write_png(upscaled, output_to)
 	}
 }
 
-texture_upscaler :: proc(texture: Image($format), target_w, target_h: uint) -> Image(format) {
+texture_upscaler :: proc(texture: Image($format), target_w, target_h: uint, wraparound: bool) -> Image(format) {
 	IsGrey :: format == .grey || format == .grey_alpha
 	IsAlpha :: format == .grey_alpha || format == .rgb_alpha
 	skip_cutout := true
@@ -186,6 +186,100 @@ texture_upscaler :: proc(texture: Image($format), target_w, target_h: uint) -> I
 		}
 	}
 
+	wraparound_points: [dynamic]TrainingDataPoint(2, 2)
+	wraparound_data: [dynamic]TrainingDataPoint(2, OutputSize)
+	skip_wa_gens: int = 0
+	if wraparound {
+		size := 2*(target_w+1 + target_h+1) + 2*(texture.width+1 + texture.height+1)
+
+		reserve(&wraparound_points, size)
+		wraparound_data = make([dynamic]TrainingDataPoint(2, OutputSize), size)
+
+		append(&wraparound_points, TrainingDataPoint(2, 2) {
+			[?]f32{ 0, 0 },
+			[?]f32{ 1, 1 },
+		})
+		append(&wraparound_points, TrainingDataPoint(2, 2) {
+			[?]f32{ 0, 1 },
+			[?]f32{ 1, 0 },
+		})
+		append(&wraparound_points, TrainingDataPoint(2, 2) {
+			[?]f32{ 1, 0 },
+			[?]f32{ 0, 1 },
+		})
+		append(&wraparound_points, TrainingDataPoint(2, 2) {
+			[?]f32{ 1, 1 },
+			[?]f32{ 0, 0 },
+		})
+
+		boundary_size := [2]int{ int(texture.width), int(texture.height) }
+
+		append(&wraparound_points, TrainingDataPoint(2, 2) {
+			normalize_coords([2]int{ -1, -1 }, boundary_size),
+			normalize_coords([2]int{ int(texture.width-1), int(texture.height-1) }, boundary_size),
+		})
+		append(&wraparound_points, TrainingDataPoint(2, 2) {
+			normalize_coords([2]int{ -1, int(texture.height-1) }, boundary_size),
+			normalize_coords([2]int{ int(texture.width-1), -1 }, boundary_size),
+		})
+		append(&wraparound_points, TrainingDataPoint(2, 2) {
+			normalize_coords([2]int{ int(texture.width-1), -1 }, boundary_size),
+			normalize_coords([2]int{ -1, int(texture.height-1) }, boundary_size),
+		})
+		append(&wraparound_points, TrainingDataPoint(2, 2) {
+			normalize_coords([2]int{ int(texture.width-1), int(texture.height-1) }, boundary_size),
+			normalize_coords([2]int{ -1, -1 }, boundary_size),
+		})
+
+		for x in 1..=target_w-1 {
+			norm_x := normalize_coords([2]int{ int(x), 0 }, [2]int{ int(target_w), 1 }).x
+			append(&wraparound_points, TrainingDataPoint(2, 2) {
+				[?]f32{ norm_x, 0 },
+				[?]f32{ norm_x, 1 },
+			})
+			append(&wraparound_points, TrainingDataPoint(2, 2) {
+				[?]f32{ norm_x, 1 },
+				[?]f32{ norm_x, 0 },
+			})
+		}
+		for y in 1..=target_h-1 {
+			norm_y := normalize_coords([2]int{ 0, int(y) }, [2]int{ 1, int(target_h) }).y
+			append(&wraparound_points, TrainingDataPoint(2, 2) {
+				[?]f32{ 0, norm_y },
+				[?]f32{ 1, norm_y },
+			})
+			append(&wraparound_points, TrainingDataPoint(2, 2) {
+				[?]f32{ 1, norm_y },
+				[?]f32{ 0, norm_y },
+			})
+		}
+
+		for x in 0..<texture.width {
+			normed_above := normalize_coords([2]int{ int(x), int(boundary_size.y+1) }, boundary_size)
+			normed_below := normalize_coords([2]int{ int(x), -1 }, boundary_size)
+			append(&wraparound_points, TrainingDataPoint(2, 2) {
+				normed_above,
+				[2]f32{ normed_above.x, normed_above.y - 1 }
+			})
+			append(&wraparound_points, TrainingDataPoint(2, 2) {
+				normed_below,
+				[2]f32{ normed_below.x, normed_below.y + 1 }
+			})
+		}
+		for y in 0..<texture.width {
+			normed_right := normalize_coords([2]int{ int(boundary_size.x+1), int(y) }, boundary_size)
+			normed_left := normalize_coords([2]int{ -1, int(y) }, boundary_size)
+			append(&wraparound_points, TrainingDataPoint(2, 2) {
+				normed_right,
+				[2]f32{ normed_right.x - 1, normed_right.y }
+			})
+			append(&wraparound_points, TrainingDataPoint(2, 2) {
+				normed_left,
+				[2]f32{ normed_left.x + 1, normed_left.y }
+			})
+		}
+	}
+
 	net_texture, alloc_err = simple_net_new(
 		Layers = 8,
 		topology = [?]uint {
@@ -245,7 +339,9 @@ texture_upscaler :: proc(texture: Image($format), target_w, target_h: uint) -> I
 			eta = 1/8.0
 		}
 
-		error := simple_net_backprop(net_texture, training_set[:], eta, true)
+		error: f32
+
+		error = simple_net_backprop(net_texture, training_set[:], eta, true)
 
 		if g+1 > 2_500 && g+1 <= 5_000 {
 			early_error_avg += error/2_500
@@ -262,6 +358,27 @@ texture_upscaler :: proc(texture: Image($format), target_w, target_h: uint) -> I
 		if (g+1) % print_every == 0 {
 			fmt.printf("After {} generations of training, avg error is: {}\n", g+1, error)
 		}
+
+		if (g+1) % 10 == 0 && wraparound && skip_wa_gens <= 0 {
+			for &point, i in wraparound_points {
+				simple_net_propogate(net_texture, point.Y[:])
+				Y := net_cutout.layers[7].activations[:net_cutout.layers[7].size]
+				wraparound_data[i].X = point.X
+				#unroll for j in 0..<OutputSize {
+					wraparound_data[i].Y[j] = Y[j]
+				}
+			}
+
+			error = simple_net_backprop(net_texture, wraparound_data[:], eta, true)
+			if error < 1/1024. {
+				fmt.printf("WA err = {}; skipping...\n", error)
+				skip_wa_gens = 1024
+			}
+
+			if (g+1) % print_every == 0 {
+				fmt.printf("Wraparound error: {}\n", error)
+			}
+		} else if skip_wa_gens > 0 do skip_wa_gens -= 1
 	}
 
 	when IsAlpha {
@@ -275,7 +392,9 @@ texture_upscaler :: proc(texture: Image($format), target_w, target_h: uint) -> I
 					eta = 1/8.0
 				}
 
-				error := simple_net_backprop(net_cutout, training_set_cutout[:], eta, true)
+				error: f32
+
+				error = simple_net_backprop(net_cutout, training_set_cutout[:], eta, true)
 
 				if g+1 > 250 && g+1 <= 500 {
 					early_error_avg += error/250
@@ -292,6 +411,27 @@ texture_upscaler :: proc(texture: Image($format), target_w, target_h: uint) -> I
 				if (g+1) % (print_every/10) == 0 {
 					fmt.printf("After {} generations of training, avg error is: {}\n", g+1, error)
 				}
+
+				if (g+1) % 10 == 0 && wraparound && skip_wa_gens <= 0 {
+					for &point, i in wraparound_points {
+						simple_net_propogate(net_cutout, point.Y[:])
+						Y := net_cutout.layers[7].activations[:net_cutout.layers[7].size]
+						wraparound_data[i].X = point.X
+						#unroll for j in 0..<OutputSize {
+							wraparound_data[i].Y[j] = Y[j]
+						}
+					}
+
+					error = simple_net_backprop(net_cutout, wraparound_data[:], eta, true)
+					if error < 1/1024. {
+						fmt.printf("WA err = {}; skipping...\n", error)
+						skip_wa_gens = 128
+					}
+
+					if (g+1) % (print_every/10) == 0 {
+						fmt.printf("Wraparound error: {}\n", error)
+					}
+				} else if skip_wa_gens > 0 do skip_wa_gens -= 1
 			}
 		}
 	}
